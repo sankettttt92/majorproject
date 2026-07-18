@@ -7,8 +7,9 @@ that's when you'd add the Redis adapter so all instances share socket state —
 not needed yet.)
 """
 import socketio
+from config import CORS_ORIGINS
 
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=CORS_ORIGINS)
 
 
 async def emit_incident(incident_dict: dict):
