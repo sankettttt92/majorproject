@@ -10,6 +10,7 @@ import ComingSoon from "./pages/ComingSoon";
 import SuggestionPanel from "./components/SuggestionPanel"; // ← v2
 import { api, socket } from "./lib/api";
 import MissionCoordination from "./pages/MissionCoordination";
+import IncidentDashboard from "./pages/IncidentDashboard";
 
 const CRUMBS = {
   "/": "OPS / COMMAND DASHBOARD",
@@ -75,9 +76,8 @@ export default function App() {
               <Route path="/" element={<CommandDashboard incidents={incidents} stats={stats} teams={teams} />} />
               <Route path="/incidents" element={<IncidentQueue incidents={incidents} onStatusChange={upsertIncident} />} />
               <Route path="/resources" element={<ResourceCenter />} />
-             
-              <Route path="/victim-app" element={<ComingSoon title="Victim App Preview" blurb="A live preview of the mobile reporting app will live here." />} />
-             
+              <Route path="/live-tracking" element={<IncidentDashboard />} />
+              
               <Route path="/missions" element={<MissionCoordination />} />
             </Routes>
           </div>

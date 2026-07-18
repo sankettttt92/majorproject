@@ -16,6 +16,15 @@ async def emit_incident(incident_dict: dict):
     await sio.emit("incident:new", incident_dict)
 
 
+async def emit_media(media_dict: dict):
+    """
+    Push a newly created media_uploads row (photo or audio chunk) to every
+    connected dashboard client, so an already-open incident drawer can
+    append it live instead of only picking it up on next fetch.
+    """
+    await sio.emit("media:new", media_dict)
+
+
 @sio.event
 async def connect(sid, environ):
     print(f"[socket] dashboard connected: {sid}")

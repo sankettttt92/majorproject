@@ -1,54 +1,59 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { COLORS } from '@/utils/theme';
+
+const COLORS = {
+  surface: '#FFFFFF',
+  border: '#EFEFEF',
+  textPrimary: '#111111',
+  textMuted: '#9CA3AF',
+  green: '#10B981',
+  red: '#E5484D',
+  blue: '#2F6FED',
+};
 
 export default function StatusBarWidget({ ping, accuracy, battery, dbm, networkType }) {
   const lteLabel = networkType === 'wifi' ? 'WiFi' : networkType === 'cellular' ? 'LTE' : 'NET';
   const pingLabel = ping !== null ? `${ping}ms` : '---';
-  const accLabel = accuracy ? `${Math.round(accuracy)}m ACC` : '-- ACC';
+  const accLabel = accuracy ? `${Math.round(accuracy)}m` : '--';
   const batLabel = battery !== null ? `${battery}%` : '---%';
 
-  const dbmLabel = dbm !== null ? `${dbm} dBm` : '--- dBm';
   const signalBars = dbm > -60 ? 4 : dbm > -75 ? 3 : dbm > -90 ? 2 : 1;
+  const isLowBattery = battery !== null && battery < 20;
 
   return (
     <View style={styles.row}>
-      {/* Network / ping */}
-      <View style={styles.pill}>
-        <Ionicons name="radio-outline" size={14} color={COLORS.textMono} />
-        <Text style={styles.label}>
-          {lteLabel} – {pingLabel}
-        </Text>
-      </View>
+      <StatusItem
+        icon={<Ionicons name="battery-full-outline" size={18} color={isLowBattery ? COLORS.red : COLORS.green} />}
+        value={batLabel}
+        label={isLowBattery ? 'LOW' : 'OK'}
+        valueColor={isLowBattery ? COLORS.red : COLORS.textPrimary}
+      />
+      <StatusItem
+        icon={<MaterialCommunityIcons name={`signal-cellular-${signalBars}`} size={18} color={COLORS.textPrimary} />}
+        value={lteLabel}
+        label="SIGNAL"
+      />
+      <StatusItem
+        icon={<Ionicons name="shield-checkmark-outline" size={18} color={COLORS.green} />}
+        value="Safe"
+        label={pingLabel}
+      />
+      <StatusItem
+        icon={<Ionicons name="navigate-circle-outline" size={18} color={COLORS.blue} />}
+        value="Active"
+        label={accLabel}
+      />
+    </View>
+  );
+}
 
-      {/* GPS accuracy */}
-      <View style={styles.pill}>
-        <Ionicons name="location-outline" size={14} color={COLORS.textMono} />
-        <Text style={styles.label}>{accLabel}</Text>
-      </View>
-
-      {/* Battery */}
-      <View style={styles.pill}>
-        <Ionicons
-          name={battery > 20 ? 'battery-half-outline' : 'battery-dead-outline'}
-          size={14}
-          color={battery !== null && battery < 20 ? COLORS.critical : COLORS.textMono}
-        />
-        <Text style={[styles.label, battery !== null && battery < 20 && { color: COLORS.critical }]}>
-          {batLabel}
-        </Text>
-      </View>
-
-      {/* Signal dBm */}
-      <View style={styles.pill}>
-        <MaterialCommunityIcons
-          name={`signal-cellular-${signalBars}`}
-          size={14}
-          color={COLORS.textMono}
-        />
-        <Text style={styles.label}>{dbmLabel}</Text>
-      </View>
+function StatusItem({ icon, value, label, valueColor }) {
+  return (
+    <View style={styles.item}>
+      {icon}
+      <Text style={[styles.value, valueColor && { color: valueColor }]}>{value}</Text>
+      <Text style={styles.label}>{label}</Text>
     </View>
   );
 }
@@ -56,27 +61,27 @@ export default function StatusBarWidget({ ping, accuracy, battery, dbm, networkT
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 16,
+    paddingVertical: 14,
     marginBottom: 16,
   },
-  pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: COLORS.bgCard,
-    borderWidth: 1,
-    borderColor: COLORS.bgCardBorder,
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+  item: {
     flex: 1,
-    minWidth: 80,
+    alignItems: 'center',
+    gap: 4,
+  },
+  value: {
+    color: COLORS.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
   },
   label: {
-    color: COLORS.textSecondary,
-    fontSize: 11,
-    fontWeight: '500',
+    color: COLORS.textMuted,
+    fontSize: 10,
+    fontWeight: '600',
     letterSpacing: 0.3,
   },
 });

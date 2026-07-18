@@ -1,16 +1,19 @@
 import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 
+import WelcomeScreen from '@/screens/WelcomeScreen';
 import HomeScreen from '@/screens/HomeScreen';
 import IncidentDetailScreen from '@/screens/IncidentDetailScreen';
 import LogMedicalScreen from '@/screens/LogMedicalScreen';
-
+import Register from '@/screens/Register';
+import Login from '@/screens/Login';
 
 const Stack = createStackNavigator();
 
 export default function RootNavigator() {
   return (
     <Stack.Navigator
+      initialRouteName="Welcome"
       screenOptions={{
         headerStyle: { backgroundColor: '#0A0F1E' },
         headerTintColor: '#FFFFFF',
@@ -18,6 +21,21 @@ export default function RootNavigator() {
         cardStyle: { backgroundColor: '#0A0F1E' },
       }}
     >
+      <Stack.Screen
+        name="Welcome"
+        component={WelcomeScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+      name="Register"
+      component={Register}
+      options={{headerShown:false}}
+      />
+       <Stack.Screen
+        name="Login"
+        component={Login}
+        options={{ headerShown: false }}
+      />
       <Stack.Screen
         name="Home"
         component={HomeScreen}

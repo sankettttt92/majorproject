@@ -38,6 +38,7 @@ class TeamStatus(str, enum.Enum):
     DEPLOYED = "DEPLOYED"
     MAINTENANCE = "MAINTENANCE"
     OFFLINE = "OFFLINE"
+    COMPLETED = "COMPLETED"
 
 
 class Team(Base):
@@ -70,3 +71,6 @@ class Team(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    current_lat: Mapped[float] = mapped_column(Float, nullable=True)
+    current_lng: Mapped[float] = mapped_column(Float, nullable=True)
+    last_ping_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)

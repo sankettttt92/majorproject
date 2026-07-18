@@ -58,3 +58,18 @@ CREATE TABLE IF NOT EXISTS incidents (
 
 CREATE INDEX IF NOT EXISTS ix_incidents_user_id ON incidents (user_id);
 CREATE INDEX IF NOT EXISTS ix_incidents_created_at ON incidents (created_at);
+CREATE TABLE media_uploads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    media_type VARCHAR(20) NOT NULL,
+    file_path TEXT NOT NULL,
+    file_size_bytes INTEGER,
+    mime_type VARCHAR(50),
+    uploaded_by VARCHAR(255),
+    uploaded_at TIMESTAMP DEFAULT now(),
+    incident_id UUID REFERENCES incidents(id) ON DELETE CASCADE,
+
+    CONSTRAINT chk_media_type CHECK (media_type IN ('photo', 'audio'))
+);
+
+CREATE INDEX idx_media_uploads_uploaded_at ON media_uploads(uploaded_at);
+CREATE INDEX idx_media_uploads_incident_id ON media_uploads(incident_id);

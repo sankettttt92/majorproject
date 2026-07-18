@@ -15,11 +15,11 @@ const PLACE_TYPE_LABEL = { hospital: "Hospital", school: "School", ngo: "NGO / S
 const OVERPASS_URL  = "https://overpass-api.de/api/interpreter";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 
-// ── animation speed: meters per second (simulated) ───────────────────────────
-const SIM_SPEED_MPS = 8; // ~30 km/h
+// Animation speed: meters per second (simulated ~30 km/h)
+const SIM_SPEED_MPS = 8;
 
-// ── THROTTLE: only re-render React state this often (ms) ─────────────────────
-const RENDER_INTERVAL_MS = 100; // 10x/sec instead of 60x/sec — prevents freeze
+// Only re-render React state this often (ms) — 10x/sec prevents freeze
+const RENDER_INTERVAL_MS = 100;
 
 // ── OSM helpers ───────────────────────────────────────────────────────────────
 async function fetchNearbyFromOverpass(lat, lng) {
@@ -93,41 +93,39 @@ function buildCumulativeDistances(coords) {
   return dists;
 }
 
-// Interpolate position along polyline given travelled metres
+// ── FIX 1: Binary search replaces linear O(n) scan ───────────────────────────
+// Previously this was a for-loop scanning every point from the start.
+// With 150-point routes at 10 ticks/sec × multiple teams, that O(n) cost
+// was compounding into a freeze. Binary search cuts it to O(log n).
+// Returns { pos: [lat, lng], idx: number } so callers can also get the index
+// for cheap array slicing in RouteLayer without a second scan.
 function interpolateAlongRoute(coords, cumDists, travelledM) {
   const total = cumDists[cumDists.length - 1];
   const clamped = Math.min(travelledM, total);
-  for (let i = 1; i < cumDists.length; i++) {
-    if (cumDists[i] >= clamped) {
-      const seg = cumDists[i] - cumDists[i - 1];
-      const t = seg === 0 ? 0 : (clamped - cumDists[i - 1]) / seg;
-      const lat = coords[i - 1][0] + t * (coords[i][0] - coords[i - 1][0]);
-      const lng = coords[i - 1][1] + t * (coords[i][1] - coords[i - 1][1]);
-      return [lat, lng];
-    }
+
+  // Binary search for the segment containing clamped distance
+  let lo = 0, hi = cumDists.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (cumDists[mid] < clamped) lo = mid; else hi = mid;
   }
-  return coords[coords.length - 1];
+
+  const seg = cumDists[hi] - cumDists[lo];
+  const t = seg === 0 ? 0 : (clamped - cumDists[lo]) / seg;
+  const lat = coords[lo][0] + t * (coords[hi][0] - coords[lo][0]);
+  const lng = coords[lo][1] + t * (coords[hi][1] - coords[lo][1]);
+  return { pos: [lat, lng], idx: lo };
 }
 
-// ── ROUTE SIMPLIFICATION (Ramer–Douglas–Peucker) ──────────────────────────────
-// OSRM road geometry can come back with hundreds/thousands of points. Rendering
-// that directly as a Leaflet <Polyline> (and re-slicing it every animation tick)
-// is what was causing the lag immediately on dispatch — Leaflet has to project
-// and build the SVG path for every point synchronously on mount. RDP drops
-// points that lie almost exactly on the line between their neighbours, keeping
-// only the points that actually define the route's shape (turns, bends), so we
-// can cut a 1000-point OSRM route down to a few dozen points with no visible
-// difference, while keeping accurate distance/ETA math.
+// ── ROUTE SIMPLIFICATION (Ramer–Douglas–Peucker) ─────────────────────────────
 function perpendicularDistanceM(point, lineStart, lineEnd) {
-  // Approximate planar perpendicular distance using a local equirectangular
-  // projection — accurate enough at the scale of a single route segment.
   const latRef = (lineStart[0] + lineEnd[0]) / 2;
   const mPerDegLat = 111320;
   const mPerDegLng = 111320 * Math.cos((latRef * Math.PI) / 180);
 
   const x  = point[1]     * mPerDegLng, y  = point[0]     * mPerDegLat;
-  const x1 = lineStart[1]  * mPerDegLng, y1 = lineStart[0]  * mPerDegLat;
-  const x2 = lineEnd[1]    * mPerDegLng, y2 = lineEnd[0]    * mPerDegLat;
+  const x1 = lineStart[1] * mPerDegLng, y1 = lineStart[0] * mPerDegLat;
+  const x2 = lineEnd[1]   * mPerDegLng, y2 = lineEnd[0]   * mPerDegLat;
 
   const dx = x2 - x1, dy = y2 - y1;
   const lenSq = dx * dx + dy * dy;
@@ -160,18 +158,13 @@ function simplifyRouteRDP(coords, toleranceM) {
   return rdp(coords);
 }
 
-// Caps simplified output to a sane max point count, tightening tolerance if needed.
-// Guarantees the polyline Leaflet renders never has more than ~MAX_ROUTE_POINTS
-// points, regardless of how dense the source OSRM geometry was.
 const MAX_ROUTE_POINTS = 150;
 function getSimplifiedRoute(coords) {
   if (!coords || coords.length <= MAX_ROUTE_POINTS) return coords;
 
-  let tolerance = 8; // metres — start gentle
+  let tolerance = 8;
   let simplified = simplifyRouteRDP(coords, tolerance);
 
-  // If still too dense (e.g. very winding road), increase tolerance and retry,
-  // capped at a few attempts so this never becomes its own perf problem.
   let attempts = 0;
   while (simplified.length > MAX_ROUTE_POINTS && attempts < 6) {
     tolerance *= 2;
@@ -180,8 +173,6 @@ function getSimplifiedRoute(coords) {
   }
   return simplified;
 }
-
-
 
 // ── icon factories ────────────────────────────────────────────────────────────
 function makeIncidentIcon(severity, status, isSelected) {
@@ -210,7 +201,6 @@ function makeTeamIcon(status, isSelected) {
   return L.divIcon({ html: svg, className: "", iconSize: [32*scale,32*scale], iconAnchor: [16*scale,16*scale], popupAnchor: [0,-(18*scale)] });
 }
 
-// Moving team icon (pulsing blue dot)
 function makeMovingTeamIcon(teamName) {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
@@ -244,6 +234,22 @@ function makeFacilityIcon(place_type) {
   return L.divIcon({ html: svg, className: "", iconSize: [28,36], iconAnchor: [14,35], popupAnchor: [0,-36] });
 }
 
+// ── FIX 2: Icon caches — prevent L.divIcon() DOM teardown on every render ─────
+// Moving team icons: built once per team name, never rebuilt.
+const movingIconCache = {};
+function getMovingTeamIcon(teamName) {
+  if (!movingIconCache[teamName]) movingIconCache[teamName] = makeMovingTeamIcon(teamName);
+  return movingIconCache[teamName];
+}
+
+// Arrived/deployed team icons: built once per status+selected combo.
+const teamIconCache = {};
+function getCachedTeamIcon(status, isSelected) {
+  const key = `${status}-${isSelected}`;
+  if (!teamIconCache[key]) teamIconCache[key] = makeTeamIcon(status, isSelected);
+  return teamIconCache[key];
+}
+
 // ── fly-to helper ─────────────────────────────────────────────────────────────
 function FlyTo({ target }) {
   const map = useMap();
@@ -270,113 +276,101 @@ const FILTER_TABS    = ["ALL","CRITICAL","HIGH","MODERATE","LOW"];
 const PANEL_TABS     = ["INCIDENTS","TEAMS","DISPATCH"];
 const TEAM_STAT_TONE = { AVAILABLE: "green", DEPLOYED: "blue", MAINTENANCE: "muted", OFFLINE: "red" };
 
-// ── ROUTE COLOURS per team index ──────────────────────────────────────────────
 const ROUTE_COLORS = ["#2563eb","#16a34a","#dc2626","#d97706","#7c3aed","#0891b2"];
 
-// ── memoized icon cache for moving team markers ───────────────────────────────
-// Prevents L.divIcon() from being rebuilt (and Leaflet re-creating marker DOM)
-// on every animation tick — only built once per team name.
-const movingIconCache = {};
-function getMovingTeamIcon(teamName) {
-  if (!movingIconCache[teamName]) {
-    movingIconCache[teamName] = makeMovingTeamIcon(teamName);
-  }
-  return movingIconCache[teamName];
-}
-
 // ── RouteLayer — isolated + memoized per-route rendering ──────────────────────
-// Pulls the ahead/behind polyline slicing out of the parent render so that a
-// travelledM update on one team doesn't force recomputation for every route.
-// Memoized on the fields that actually affect the visuals.
+// FIX 3: RouteLayer now receives precomputed `pos` and `posIdx` from state,
+// eliminating ALL math from the render path. The only work here is array
+// slicing (O(1) index lookup) and Leaflet position updates.
+// Using React.memo with a custom comparator so it only re-renders when the
+// fields that actually affect visuals change — not on every parent render.
 const RouteLayer = React.memo(function RouteLayer({ route }) {
-  const pos = useMemo(
-    () => interpolateAlongRoute(route.routeCoords, route.cumDists, route.travelledM),
-    [route.routeCoords, route.cumDists, route.travelledM]
-  );
+  // pos and posIdx are now precomputed in the animation engine (see tick()),
+  // so this component does zero interpolation work itself.
+  const { pos, posIdx, routeCoords, done, color, teamName, remainingKm, remainingMin, progress } = route;
 
+  // FIX 4: Slice uses precomputed posIdx — O(1) lookup, no scan needed.
   const aheadCoords = useMemo(() => {
-    if (route.done) return [];
-    const total = route.cumDists[route.cumDists.length - 1];
-    const clamped = Math.min(route.travelledM, total);
-    let startIdx = 0;
-    for (let i = 1; i < route.cumDists.length; i++) {
-      if (route.cumDists[i] >= clamped) { startIdx = i - 1; break; }
-    }
-    return [pos, ...route.routeCoords.slice(startIdx + 1)];
-  }, [route.done, route.routeCoords, route.cumDists, route.travelledM, pos]);
+    if (done || !pos || posIdx == null) return [];
+    return [pos, ...routeCoords.slice(posIdx + 1)];
+  }, [done, pos, posIdx, routeCoords]);
 
   const behindCoords = useMemo(() => {
-    const clamped = Math.min(route.travelledM, route.cumDists[route.cumDists.length - 1]);
-    let endIdx = route.routeCoords.length - 1;
-    for (let i = 1; i < route.cumDists.length; i++) {
-      if (route.cumDists[i] >= clamped) { endIdx = i; break; }
-    }
-    return [...route.routeCoords.slice(0, endIdx), pos];
-  }, [route.routeCoords, route.cumDists, route.travelledM, pos]);
+    if (!pos || posIdx == null) return [];
+    return [...routeCoords.slice(0, posIdx + 1), pos];
+  }, [pos, posIdx, routeCoords]);
 
-  const movingIcon = useMemo(() => getMovingTeamIcon(route.teamName), [route.teamName]);
+  // Icons are stable references from cache — Leaflet never tears down the DOM node.
+  const movingIcon  = useMemo(() => getMovingTeamIcon(teamName), [teamName]);
+  const arrivedIcon = useMemo(() => getCachedTeamIcon("DEPLOYED", false), []);
+
+  if (!pos) return null;
 
   return (
-    <div>
-      {/* Travelled portion — solid */}
+    <>
+      {/* Travelled portion — solid, faded */}
       {behindCoords.length >= 2 && (
         <Polyline
           positions={behindCoords}
-          pathOptions={{ color: route.color, weight: 4, opacity: 0.5 }}
+          pathOptions={{ color, weight: 4, opacity: 0.45 }}
         />
       )}
       {/* Ahead portion — dashed */}
       {aheadCoords.length >= 2 && (
         <Polyline
           positions={aheadCoords}
-          pathOptions={{ color: route.color, weight: 3, opacity: 0.9, dashArray: "8 5" }}
+          pathOptions={{ color, weight: 3, opacity: 0.9, dashArray: "8 5" }}
         />
       )}
       {/* Moving team marker */}
-      {!route.done && (
-        <Marker
-          position={pos}
-          icon={movingIcon}
-        >
+      {!done && (
+        <Marker position={pos} icon={movingIcon}>
           <Popup className="rakshak-popup">
             <div style={{ minWidth:160, fontFamily:"monospace" }}>
-              <div style={{ fontWeight:700, marginBottom:4, color:"#2563eb" }}>{route.teamName}</div>
+              <div style={{ fontWeight:700, marginBottom:4, color:"#2563eb" }}>{teamName}</div>
               <div style={{ fontSize:11, color:"#64748b", marginBottom:2 }}>EN ROUTE</div>
-              <div style={{ fontSize:12, color:"#1e293b" }}>
-                {route.remainingKm} km remaining
-              </div>
-              <div style={{ fontSize:12, color:"#1e293b" }}>
-                ETA ~{route.remainingMin} min
-              </div>
+              <div style={{ fontSize:12, color:"#1e293b" }}>{remainingKm} km remaining</div>
+              <div style={{ fontSize:12, color:"#1e293b" }}>ETA ~{remainingMin} min</div>
               <div style={{ marginTop:6, background:"#f1f5f9", borderRadius:4, height:4, overflow:"hidden" }}>
-                <div style={{ width:`${(route.progress*100).toFixed(1)}%`, height:"100%", background:"#2563eb", borderRadius:4, transition:"width 0.3s" }} />
+                <div style={{ width:`${(progress*100).toFixed(1)}%`, height:"100%", background:"#2563eb", borderRadius:4, transition:"width 0.3s" }} />
               </div>
             </div>
           </Popup>
         </Marker>
       )}
       {/* Arrived marker */}
-      {route.done && (
-        <Marker position={pos} icon={makeTeamIcon("DEPLOYED", false)}>
+      {done && (
+        <Marker position={pos} icon={arrivedIcon}>
           <Popup className="rakshak-popup">
             <div style={{ minWidth:140, fontFamily:"monospace" }}>
-              <div style={{ fontWeight:700, color:"#16a34a", marginBottom:3 }}>{route.teamName}</div>
+              <div style={{ fontWeight:700, color:"#16a34a", marginBottom:3 }}>{teamName}</div>
               <div style={{ fontSize:11 }}>✓ Arrived at incident</div>
             </div>
           </Popup>
         </Marker>
       )}
-    </div>
+    </>
+  );
+}, (prev, next) => {
+  // Custom comparator: only re-render if visually meaningful fields changed.
+  // This prevents re-renders caused by unrelated parent state updates.
+  const r1 = prev.route, r2 = next.route;
+  return (
+    r1.pos === r2.pos &&
+    r1.posIdx === r2.posIdx &&
+    r1.done === r2.done &&
+    r1.progress === r2.progress &&
+    r1.remainingKm === r2.remainingKm &&
+    r1.remainingMin === r2.remainingMin &&
+    r1.routeCoords === r2.routeCoords
   );
 });
 
 // ── main ──────────────────────────────────────────────────────────────────────
 export default function MapCoordination() {
-  // map
   const [mapStyle, setMapStyle]   = useState("light");
   const [flyTarget, setFlyTarget] = useState(null);
 
-  // incidents
   const [incidents, setIncidents] = useState([]);
   const [incLoading, setIncLoading] = useState(true);
   const [selectedInc, setSelectedInc] = useState(null);
@@ -384,18 +378,13 @@ export default function MapCoordination() {
   const [incQuery, setIncQuery]   = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
-  // teams
   const [teams, setTeams]         = useState([]);
   const [teamQuery, setTeamQuery] = useState("");
   const [selectedTeam, setSelectedTeam] = useState(null);
 
-  // facility pins
   const [facilityPins, setFacilityPins] = useState({});
-
-  // panel tab
   const [panelTab, setPanelTab]   = useState("INCIDENTS");
 
-  // facility drawer state
   const [facilityTarget, setFacilityTarget]     = useState(null);
   const [facilityResults, setFacilityResults]   = useState([]);
   const [facilityLoading, setFacilityLoading]   = useState(false);
@@ -410,14 +399,15 @@ export default function MapCoordination() {
   const [placeError, setPlaceError]             = useState(null);
   const [selectedPlace, setSelectedPlace]       = useState(null);
 
-  // ── DISPATCH / MOVEMENT STATE ─────────────────────────────────────────────
-  // activeRoutes: { [teamId]: { teamName, routeCoords, cumDists, totalM, travelledM,
-  //                             distanceKm, etaMinutes, incidentId, color, done } }
+  // activeRoutes shape: { [teamId]: { teamName, routeCoords, cumDists, totalM,
+  //   travelledM, pos, posIdx, remainingKm, remainingMin, distanceKm,
+  //   etaMinutes, incidentId, color, progress, done } }
   const [activeRoutes, setActiveRoutes] = useState({});
-  const animFrameRef = useRef({});   // { teamId: requestAnimationFrameId }
-  const lastTsRef    = useRef({});   // { teamId: timestamp }
-  const lastRenderRef = useRef({});  // { teamId: timestamp } — throttle re-renders
-  const animGenRef   = useRef({});   // { teamId: generation number } — invalidates stale tick loops
+
+  const animFrameRef  = useRef({});  // { teamId: rAF id }
+  const lastTsRef     = useRef({});  // { teamId: timestamp }
+  const lastRenderRef = useRef({});  // { teamId: timestamp } — throttle
+  const animGenRef    = useRef({});  // { teamId: generation } — stale loop guard
 
   const incListRef  = useRef(null);
   const teamListRef = useRef(null);
@@ -432,10 +422,8 @@ export default function MapCoordination() {
   }
 
   async function loadTeams() {
-    try {
-      const data = await api.getTeams();
-      setTeams(data);
-    } catch (e) { console.error(e); }
+    try { setTeams(await api.getTeams()); }
+    catch (e) { console.error(e); }
   }
 
   useEffect(() => { loadIncidents(); loadTeams(); }, []);
@@ -446,35 +434,53 @@ export default function MapCoordination() {
     setRefreshing(false);
   }
 
-  // ── ANIMATION ENGINE (throttled to RENDER_INTERVAL_MS) ───────────────────
-  // Only calls setActiveRoutes every 100ms instead of every frame (60x/sec).
-  // This prevents the map from freezing when A* dispatches teams.
+  // ── FIX 5: ANIMATION ENGINE — all fixes applied ───────────────────────────
   //
-  // FIX: each call to startAnimation() for a given teamId now bumps a
-  // "generation" counter for that team. The running tick() loop checks its
-  // own captured generation against the latest one on every frame — if it's
-  // stale (i.e. startAnimation was called again for the same team before the
-  // old loop fully stopped), it silently exits instead of continuing to
-  // schedule requestAnimationFrame. This guarantees only ONE tick loop per
-  // team is ever active, even if startAnimation/handleDispatch fires more
-  // than once (double-click, re-render, etc.) — which was the root cause of
-  // the page freeze (multiple uncancellable rAF loops compounding forever).
+  // Key changes vs original:
+  //
+  // (a) cancelAnimationFrame BEFORE bumping generation. In the original, the
+  //     gen bump happened first. If the old tick() had already been queued by
+  //     the time cancelAnimationFrame ran, it would see the new gen, pass the
+  //     stale-guard, and run as a phantom second loop. Cancelling first
+  //     guarantees the old frame never fires.
+  //
+  // (b) interpolateAlongRoute (binary search) is called INSIDE the tick, and
+  //     its result (pos + posIdx) is stored directly in state. RouteLayer reads
+  //     these precomputed values — it does zero math itself.
+  //
+  // (c) The shouldRender throttle now also guards the setActiveRoutes call,
+  //     not just the rAF reschedule. This means React's reconciler only runs
+  //     ~10x/sec regardless of monitor refresh rate.
   const startAnimation = useCallback((teamId) => {
+    // (a) Cancel old frame FIRST, then bump generation
+    if (animFrameRef.current[teamId]) {
+      cancelAnimationFrame(animFrameRef.current[teamId]);
+      animFrameRef.current[teamId] = null;
+    }
+
     const myGen = (animGenRef.current[teamId] || 0) + 1;
     animGenRef.current[teamId] = myGen;
 
-    if (animFrameRef.current[teamId]) cancelAnimationFrame(animFrameRef.current[teamId]);
-    lastTsRef.current[teamId] = performance.now();
+    lastTsRef.current[teamId]     = performance.now();
     lastRenderRef.current[teamId] = performance.now();
 
     function tick(now) {
-      // Stale loop guard — a newer startAnimation() call has taken over this teamId
+      // Stale loop guard
       if (animGenRef.current[teamId] !== myGen) return;
 
-      const dt = (now - lastTsRef.current[teamId]) / 1000; // seconds
+      const dt = (now - lastTsRef.current[teamId]) / 1000;
       lastTsRef.current[teamId] = now;
 
       const shouldRender = (now - (lastRenderRef.current[teamId] || 0)) >= RENDER_INTERVAL_MS;
+
+      if (!shouldRender) {
+        // Not time to render yet — reschedule without touching state at all.
+        // This is cheaper than calling setActiveRoutes with an unchanged value.
+        animFrameRef.current[teamId] = requestAnimationFrame(tick);
+        return;
+      }
+
+      lastRenderRef.current[teamId] = now;
 
       setActiveRoutes((prev) => {
         const route = prev[teamId];
@@ -484,68 +490,61 @@ export default function MapCoordination() {
         const done = newTravelled >= route.totalM;
         const travelledM = done ? route.totalM : newTravelled;
 
-        // ✅ Skip React re-render if not enough time has passed AND not done
-        if (!shouldRender && !done) {
-          if (animGenRef.current[teamId] === myGen) {
-            animFrameRef.current[teamId] = requestAnimationFrame(tick);
-          }
-          return prev;
-        }
+        // (b) Precompute position + index here so RouteLayer does zero work
+        const { pos, idx: posIdx } = interpolateAlongRoute(
+          route.routeCoords,
+          route.cumDists,
+          travelledM
+        );
 
-        lastRenderRef.current[teamId] = now;
-
-        const remainingM = Math.max(0, route.totalM - travelledM);
+        const remainingM   = Math.max(0, route.totalM - travelledM);
         const remainingMin = (remainingM / SIM_SPEED_MPS / 60);
 
-        const updated = {
+        if (!done) {
+          animFrameRef.current[teamId] = requestAnimationFrame(tick);
+        }
+
+        return {
           ...prev,
           [teamId]: {
             ...route,
             travelledM,
+            pos,
+            posIdx,
             remainingKm: (remainingM / 1000).toFixed(2),
             remainingMin: remainingMin.toFixed(1),
             progress: travelledM / route.totalM,
             done,
           },
         };
-
-        if (!done && animGenRef.current[teamId] === myGen) {
-          animFrameRef.current[teamId] = requestAnimationFrame(tick);
-        }
-
-        return updated;
       });
     }
 
     animFrameRef.current[teamId] = requestAnimationFrame(tick);
   }, []);
 
-  // Clean up animation frames on unmount
+  // Clean up all animation frames on unmount
   useEffect(() => {
     return () => {
-      Object.values(animFrameRef.current).forEach(cancelAnimationFrame);
+      Object.values(animFrameRef.current).forEach((id) => {
+        if (id) cancelAnimationFrame(id);
+      });
     };
   }, []);
 
-  // ── ADD ROUTES from multi-allocation response ──────────────────────────────
-  // Call this after a successful allocate-multi API response
+  // ── Register routes from multi-allocation API response ────────────────────
   function registerMultiAllocation(multiSuggestion) {
     multiSuggestion.assignments.forEach((assignment, idx) => {
-      const teamId = assignment.team_id;
-      const rawCoords = assignment.route_coords; // [[lat,lng],...]
+      const teamId   = assignment.team_id;
+      const rawCoords = assignment.route_coords;
       if (!rawCoords || rawCoords.length < 2) return;
 
-      // FIX: OSRM road geometry can have hundreds/thousands of points. Simplify
-      // once here, right when the route is registered, instead of carrying the
-      // full-resolution geometry into Leaflet's <Polyline> and into the
-      // per-tick ahead/behind slicing — that raw point count was what made the
-      // page lag immediately on dispatch, before any animation even started.
-      // distance_km / eta_minutes from the API are left untouched since those
-      // reflect OSRM's true road-distance calculation, not the rendered shape.
-      const coords = getSimplifiedRoute(rawCoords);
-
+      const coords   = getSimplifiedRoute(rawCoords);
       const cumDists = buildCumulativeDistances(coords);
       const totalM   = cumDists[cumDists.length - 1];
+
+      // Compute initial pos so RouteLayer can render immediately
+      const { pos, idx: posIdx } = interpolateAlongRoute(coords, cumDists, 0);
 
       setActiveRoutes((prev) => ({
         ...prev,
@@ -556,6 +555,8 @@ export default function MapCoordination() {
           cumDists,
           totalM,
           travelledM: 0,
+          pos,
+          posIdx,
           remainingKm: (totalM / 1000).toFixed(2),
           remainingMin: (totalM / SIM_SPEED_MPS / 60).toFixed(1),
           distanceKm: assignment.distance_km,
@@ -566,8 +567,10 @@ export default function MapCoordination() {
           done: false,
         },
       }));
+
       startAnimation(teamId);
     });
+
     setPanelTab("DISPATCH");
   }
 
@@ -711,11 +714,18 @@ export default function MapCoordination() {
           </button>
         </div>
 
-        <MapContainer center={center} zoom={10} style={{ width:"100%", height:"100%" }} zoomControl={false}>
+        {/* preferCanvas keeps polyline updates off the SVG DOM entirely */}
+        <MapContainer
+          center={center}
+          zoom={10}
+          style={{ width:"100%", height:"100%" }}
+          zoomControl={false}
+          preferCanvas={true}
+        >
           <TileLayer url={tileUrl} attribution={tileAttr} />
           <FlyTo target={flyTarget} />
 
-          {/* incident pins */}
+          {/* Incident pins */}
           {filteredInc.map((inc) => (
             <Marker
               key={`inc-${inc.id}`}
@@ -741,12 +751,12 @@ export default function MapCoordination() {
             </Marker>
           ))}
 
-          {/* static team pins (not moving) */}
+          {/* Static team pins (not currently moving) */}
           {teams.filter(t => t.latitude && t.longitude && !activeRoutes[t.id]).map((t) => (
             <Marker
               key={`team-${t.id}`}
               position={[t.latitude, t.longitude]}
-              icon={makeTeamIcon(t.status, selectedTeam?.id === t.id)}
+              icon={getCachedTeamIcon(t.status, selectedTeam?.id === t.id)}
               eventHandlers={{ click: () => { setSelectedTeam(t); setFlyTarget(t); setPanelTab("TEAMS"); } }}
             >
               <Popup className="rakshak-popup">
@@ -761,7 +771,7 @@ export default function MapCoordination() {
             </Marker>
           ))}
 
-          {/* facility pins */}
+          {/* Facility pins */}
           {facilityPinList.map((f) => (
             <Marker
               key={`fac-${f.place_id}`}
@@ -780,16 +790,13 @@ export default function MapCoordination() {
             </Marker>
           ))}
 
-          {/* ── ROUTE POLYLINES + MOVING MARKERS ── */}
-          {/* FIX: extracted into memoized <RouteLayer/> so per-route slice/spread
-              math and icon creation only re-run for the route that actually changed,
-              instead of recomputing for every active route on every render. */}
+          {/* Route polylines + moving markers — each isolated in RouteLayer */}
           {activeRouteList.map((route) => (
             <RouteLayer key={`route-${route.teamId}`} route={route} />
           ))}
         </MapContainer>
 
-        {/* legend */}
+        {/* Legend */}
         <div style={S.legend}>
           {Object.entries(SEVERITY_COLOR).map(([sev, col]) => (
             <div key={sev} style={S.legendItem}>
@@ -824,7 +831,7 @@ export default function MapCoordination() {
           </button>
         </div>
 
-        {/* panel tabs */}
+        {/* Panel tabs */}
         <div style={S.panelTabs}>
           {PANEL_TABS.map((t) => (
             <button
@@ -901,7 +908,6 @@ export default function MapCoordination() {
                         ))}
                       </div>
                     )}
-                    {/* ── A* Dispatch button ── */}
                     {isActive && inc.status === "VERIFIED" && (
                       <DispatchButton
                         incident={inc}
@@ -932,9 +938,10 @@ export default function MapCoordination() {
                 <div style={S.empty}><Users size={20} color="#cbd5e1" style={{ marginBottom:6 }} />No teams found.</div>
               )}
               {filteredTeams.map((t) => {
-                const isActive = selectedTeam?.id === t.id;
+                const isActive   = selectedTeam?.id === t.id;
                 const hasFacility = !!facilityPins[t.id];
-                const isMoving = !!activeRoutes[t.id] && !activeRoutes[t.id].done;
+                const routeState  = activeRoutes[t.id];
+                const isMoving    = !!routeState && !routeState.done;
                 return (
                   <div key={t.id}
                     style={{ ...S.card, ...(isActive ? S.cardActive : {}) }}
@@ -959,10 +966,10 @@ export default function MapCoordination() {
                     {isMoving && (
                       <div style={{ marginTop:4, paddingLeft:11 }}>
                         <div style={{ fontSize:10, color:"#2563eb", fontWeight:600, marginBottom:3 }}>
-                          EN ROUTE · {activeRoutes[t.id].remainingKm} km · ~{activeRoutes[t.id].remainingMin} min
+                          EN ROUTE · {routeState.remainingKm} km · ~{routeState.remainingMin} min
                         </div>
                         <div style={{ background:"#e2e8f0", borderRadius:4, height:3, overflow:"hidden" }}>
-                          <div style={{ width:`${(activeRoutes[t.id].progress*100).toFixed(1)}%`, height:"100%", background:"#2563eb", borderRadius:4 }} />
+                          <div style={{ width:`${(routeState.progress*100).toFixed(1)}%`, height:"100%", background:"#2563eb", borderRadius:4 }} />
                         </div>
                       </div>
                     )}
@@ -993,7 +1000,7 @@ export default function MapCoordination() {
                 No active dispatches. Use A* Dispatch on a verified incident.
               </div>
             )}
-            {activeRouteList.map((route, idx) => (
+            {activeRouteList.map((route) => (
               <div key={route.teamId} style={{ ...S.card, borderLeft:`3px solid ${route.color}` }}>
                 <div style={S.cardRow}>
                   <div style={S.cardLeft}>
@@ -1011,8 +1018,7 @@ export default function MapCoordination() {
                   </span>
                 </div>
 
-                {/* Stats row */}
-                <div style={{ display:"flex", gap:16, paddingLeft:0, marginBottom:8 }}>
+                <div style={{ display:"flex", gap:16, marginBottom:8 }}>
                   <div style={S.scoreItem}>
                     <span style={S.scoreLabel}>REMAINING</span>
                     <span style={{ ...S.scoreVal, color: route.color }}>{route.done ? "0.00" : route.remainingKm} km</span>
@@ -1027,7 +1033,6 @@ export default function MapCoordination() {
                   </div>
                 </div>
 
-                {/* Progress bar */}
                 <div style={{ background:"#f1f5f9", borderRadius:4, height:6, overflow:"hidden", marginBottom:6 }}>
                   <div style={{
                     width: `${(route.progress * 100).toFixed(1)}%`,
@@ -1043,14 +1048,10 @@ export default function MapCoordination() {
                   <span>Incident</span>
                 </div>
 
-                {/* Fly-to button */}
-                {!route.done && (
+                {!route.done && route.pos && (
                   <button
                     style={{ ...S.assignBtn, marginTop:8 }}
-                    onClick={() => {
-                      const pos = interpolateAlongRoute(route.routeCoords, route.cumDists, route.travelledM);
-                      setFlyTarget({ latitude: pos[0], longitude: pos[1] });
-                    }}
+                    onClick={() => setFlyTarget({ latitude: route.pos[0], longitude: route.pos[1] })}
                   >
                     <Navigation size={12} style={{ marginRight:5 }} />
                     Track on map
@@ -1102,7 +1103,12 @@ export default function MapCoordination() {
                       </button>
                     </div>
                     {placeError && <div style={S.errorBanner}>{placeError}</div>}
-                    {placeSearching && <div style={S.loadingRow}><Loader size={14} style={{ animation:"spin 1s linear infinite" }} /><span>Looking up location…</span></div>}
+                    {placeSearching && (
+                      <div style={S.loadingRow}>
+                        <Loader size={14} style={{ animation:"spin 1s linear infinite" }} />
+                        <span>Looking up location…</span>
+                      </div>
+                    )}
                     {placeMatches.length > 0 && (
                       <div style={S.matchList}>
                         {placeMatches.map((m) => (
@@ -1191,18 +1197,21 @@ export default function MapCoordination() {
   );
 }
 
-// ── DispatchButton — calls allocate-multi and feeds routes into map ────────────
+// ── DispatchButton ────────────────────────────────────────────────────────────
+// FIX 6: ref-based double-dispatch guard.
+// React batching means two clicks in the same event flush can both see
+// loading===false before the first setState fires. A ref is synchronous —
+// it's set before any await, so the second click sees it immediately.
 function DispatchButton({ incident, onDispatched, onRefresh }) {
-  const [nTeams, setNTeams]     = useState(2);
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState(null);
-  const [success, setSuccess]   = useState(false);
+  const [nTeams, setNTeams]   = useState(2);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState(null);
+  const [success, setSuccess] = useState(false);
+  const dispatchingRef        = useRef(false);  // synchronous guard
 
   async function handleDispatch() {
-    // FIX: re-entry guard — prevents a double-click (or a stray double-invoke)
-    // from firing allocateTeamsMulti twice, which would call startAnimation
-    // twice for the same teams and was a major contributor to the freeze.
-    if (loading) return;
+    if (dispatchingRef.current) return;  // blocks re-entrant calls synchronously
+    dispatchingRef.current = true;
     setLoading(true); setError(null); setSuccess(false);
     try {
       const result = await api.allocateTeamsMulti(incident.id, nTeams);
@@ -1213,6 +1222,7 @@ function DispatchButton({ incident, onDispatched, onRefresh }) {
       setError(err.data?.detail || "Dispatch failed. Ensure teams are assigned to nearby facilities.");
     } finally {
       setLoading(false);
+      dispatchingRef.current = false;
     }
   }
 
