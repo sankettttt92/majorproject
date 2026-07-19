@@ -12,7 +12,7 @@ const TEAM_STATUS_COLOR = { AVAILABLE: "#16a34a", DEPLOYED: "#2563eb", MAINTENAN
 const PLACE_TYPE_PILL = { hospital: "red", school: "blue", ngo: "green" };
 const PLACE_TYPE_LABEL = { hospital: "Hospital", school: "School", ngo: "NGO / Social" };
 
-const OVERPASS_URL  = "https://overpass-api.de/api/interpreter";
+const OVERPASS_URL  = "https://overpass.kumi.systems/api/interpreter";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 
 // Animation speed: meters per second (simulated ~30 km/h)
