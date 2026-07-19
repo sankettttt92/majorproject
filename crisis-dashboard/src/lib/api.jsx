@@ -1,4 +1,5 @@
 
+
 // import { io } from "socket.io-client";
 
 // export const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
@@ -11,7 +12,7 @@
 // async function request(path, options = {}) {
 //   const res = await fetch(`${API_BASE}${path}`, {
 //     headers: { "Content-Type": "application/json" },
-//     ...options,
+//     ...options, // Preserves method, body, and signal (must be passed as { signal })
 //   });
 
 //   if (!res.ok) {
@@ -36,7 +37,16 @@
 
 // export const api = {
 //   // ── Incidents ────────────────────────────────────────────────────────────
-//   getIncidents: () => request("/incidents/active"),
+//   // options: { signal } — pass an AbortController's signal to cancel on unmount
+//   getIncidents: (options) => request("/incidents/active", options),
+
+//   // FIX: backend route is /incidents/{id}/location (routers/location.py),
+//   // not /incidents/{id}/history
+//   getIncidentLocationHistory: (id, options) =>
+//     request(`/incidents/${id}/location`, options),
+
+//   getIncidentPrediction: (id, options) =>
+//     request(`/incidents/${id}/prediction`, options),
 
 //   updateIncidentStatus: (id, status) =>
 //     request(`/incidents/${id}/status`, {
@@ -75,6 +85,13 @@
 //     request(`/incidents/${incidentId}/unallocate`, {
 //       method: "POST",
 //       body: JSON.stringify({ team_id: teamId }),
+//     }),
+
+//   // ── Resource Dispatch / Auto-allocation ──────────────────────────────────
+//   dispatchAutomatedVolunteer: (incidentId) =>
+//     request(`/incidents/${incidentId}/allocate-multi`, {
+//       method: "POST",
+//       body: JSON.stringify({ n_teams: 1 }),
 //     }),
 
 //   // ── v2: Facility–Team assignment ─────────────────────────────────────────
@@ -220,6 +237,13 @@ export const api = {
 
   getFacilitiesNearby: (incidentId) =>
     request(`/facilities/nearby/${incidentId}`),
+
+  // NEW: raw lat/lng facility search — proxies Overpass via our own backend
+  // (GET /facilities/search) to avoid calling Overpass directly from the
+  // browser, which fails due to CORS. Used by the facility-assignment
+  // drawer for team bases, geocoded places, or manually entered coords.
+  getNearbyFacilities: (lat, lng, radiusM = 5000) =>
+    request(`/facilities/search?lat=${lat}&lng=${lng}&radius_m=${radiusM}`),
 
   confirmSuggestion: (incidentId, teamId) =>
     request(`/incidents/${incidentId}/allocate`, {

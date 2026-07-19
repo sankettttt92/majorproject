@@ -1347,19 +1347,13 @@ const PLACE_TYPE_PILL = { hospital: "red", school: "blue", ngo: "green" };
 const PLACE_TYPE_LABEL = { hospital: "Hospital", school: "School", ngo: "NGO / Social" };
 
 // ── OSM helpers ───────────────────────────────────────────────────────────────
-// Multiple mirrors tried in order — the original single kumi.systems mirror
-// was flaky/overloaded and 504ing. This tries a more stable one first, then
-// falls back automatically. Same function signature/behavior as before, so
-// nothing else in this file needs to change.
-const OVERPASS_MIRRORS = [
-  "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
-  "https://overpass.openstreetmap.ru/api/interpreter",
-];
-
-// In-memory cache keyed by rounded lat/lng so re-opening the drawer for the
-// same team doesn't re-hit Overpass. Cleared on full page reload only.
-const overpassCache = new Map();
+// NOTE: Direct browser calls to Overpass were removed — Overpass doesn't
+// reliably send CORS headers, so calling it from the browser gets blocked
+// (or hangs until timeout on mirrors). Facility search now goes through our
+// own backend via api.getNearbyFacilities(), which proxies to Overpass
+// server-side in services/places.py (no CORS issue there).
+// Nominatim is left as a direct browser call below — it supports CORS
+// reliably, so no proxy is needed for it.
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 
@@ -1368,62 +1362,6 @@ const SIM_SPEED_MPS = 8;
 
 // Only re-render React state this often (ms) — 10x/sec prevents freeze
 const RENDER_INTERVAL_MS = 100;
-
-function parseOverpassElements(data) {
-  const TYPE_MAP = {
-    hospital: "hospital", clinic: "hospital",
-    school: "school", college: "school",
-    social_facility: "ngo", community_centre: "ngo",
-  };
-  const seen = new Set();
-  return data.elements.map((el) => {
-    const amenity = el.tags?.amenity || "";
-    const place_type = TYPE_MAP[amenity];
-    if (!place_type) return null;
-    const elLat = el.type === "way" ? el.center?.lat : el.lat;
-    const elLng = el.type === "way" ? el.center?.lon : el.lon;
-    if (!elLat || !elLng) return null;
-    const place_id = `osm:${el.type}:${el.id}`;
-    if (seen.has(place_id)) return null;
-    seen.add(place_id);
-    return { place_id, place_name: el.tags?.name || amenity.replace("_", " "), place_type, latitude: elLat, longitude: elLng };
-  }).filter(Boolean);
-}
-
-async function fetchNearbyFromOverpass(lat, lng) {
-  const cacheKey = `${lat.toFixed(3)},${lng.toFixed(3)}`;
-  if (overpassCache.has(cacheKey)) return overpassCache.get(cacheKey);
-
-  const query = `
-[out:json][timeout:10];
-(
-  node["amenity"~"hospital|clinic|school|college|social_facility|community_centre"](around:5000,${lat},${lng});
-  way["amenity"~"hospital|clinic|school|college|social_facility|community_centre"](around:5000,${lat},${lng});
-);
-out center 30;`;
-
-  let lastError;
-  for (const url of OVERPASS_MIRRORS) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        body: new URLSearchParams({ data: query }),
-        headers: { "User-Agent": "Rakshak-DisasterResponse/2.0" },
-        signal: AbortSignal.timeout(9000),
-      });
-      if (!res.ok) throw new Error(`Overpass mirror ${url} returned ${res.status}`);
-      const data = await res.json();
-      const results = parseOverpassElements(data);
-      overpassCache.set(cacheKey, results);
-      return results;
-    } catch (err) {
-      console.warn(`Overpass mirror failed: ${url}`, err);
-      lastError = err;
-      continue;
-    }
-  }
-  throw lastError || new Error("Overpass failed");
-}
 
 async function fetchPlaceMatchesFromNominatim(placeName) {
   const url = `${NOMINATIM_URL}?format=json&addressdetails=1&limit=5&q=${encodeURIComponent(placeName)}`;
@@ -1984,14 +1922,19 @@ export default function MapCoordination() {
     setPlaceError(null); setSelectedPlace(null);
   }
 
+  // UPDATED: now calls our own backend (api.getNearbyFacilities) instead of
+  // hitting Overpass directly from the browser — avoids CORS blocking.
+  // Signature and all callers (openFacilityDrawer, handleCoordSubmit,
+  // handleSelectPlaceMatch) are unchanged.
   async function searchFacilities(lat, lng) {
     setFacilityLoading(true); setFacilityError(null); setFacilityResults([]);
     try {
-      const results = await fetchNearbyFromOverpass(lat, lng);
+      const results = await api.getNearbyFacilities(lat, lng);
       if (!results.length) setFacilityError("No hospitals, schools or NGOs found within 5km.");
       setFacilityResults(results);
-    } catch { setFacilityError("Couldn't reach Overpass API. Check your connection."); }
-    finally { setFacilityLoading(false); }
+    } catch (err) {
+      setFacilityError(err.data?.detail || "Couldn't reach the facility search service.");
+    } finally { setFacilityLoading(false); }
   }
 
   function handleCoordSubmit(e) {

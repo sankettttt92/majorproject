@@ -546,6 +546,7 @@ from services.places import (
     fetch_route_polyline,
     fetch_route_polylines_multi,
 )
+from schemas.facility_search_out import FacilitySearchOut
 
 from services.astar import run_astar, run_astar_multi
 
@@ -677,6 +678,21 @@ async def get_facilities_nearby(
         )
     )
     return ft_result.scalars().all()
+
+@router.get("/facilities/search", response_model=list[FacilitySearchOut])
+async def search_facilities(lat: float, lng: float, radius_m: int = 5000):
+    """
+    Raw lat/lng facility search — proxies Overpass server-side to avoid
+    CORS issues when calling it directly from the browser.
+    GET /facilities/search?lat=19.076&lng=72.8777&radius_m=5000
+
+    Used by the frontend facility-assignment drawer for team bases,
+    geocoded places, or manually entered coordinates — unlike
+    /facilities/nearby/{incident_id}, this doesn't require an incident
+    or filter by team availability.
+    """
+    facilities = await fetch_nearby_facilities(lat, lng, radius_m)
+    return facilities
 
 
 # ── Incidents ─────────────────────────────────────────────────────────────────
