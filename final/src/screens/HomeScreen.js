@@ -603,7 +603,7 @@ const USER_NAME = 'Sanket';
 // NOTE: this can change whenever your laptop reconnects to Wi-Fi. If uploads
 // suddenly start failing with "network request failed" on the /media call,
 // check this IP first (run ipconfig / ifconfig on the laptop).
-const API_BASE = 'http:// 192.168.0.100:8000';
+const API_BASE = process.env.EXPO_PUBLIC_API_URL;
 
 const MEDIA_BUCKET = 'rakshak'; // Supabase Storage bucket name — adjust if different
 
