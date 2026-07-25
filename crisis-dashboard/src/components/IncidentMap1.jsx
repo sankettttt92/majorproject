@@ -1,10 +1,7 @@
-// src/components/IncidentMap.jsx
-//
 // A SINGLE Leaflet map instance stays mounted for the lifetime of the page.
 // When the operator clicks a different incident, we do NOT unmount/remount
-// this component (that full re-init of Leaflet + tile layer is the #1
-// cause of the "laggy page" feeling) — we just update markers/polyline
-// state and ask the existing map to flyTo the new point smoothly.
+// this component — we just update markers/polyline state and ask the
+// existing map to flyTo the new point smoothly.
 
 import { useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, Marker, CircleMarker, Polyline, Polygon, useMap } from "react-leaflet";
@@ -12,21 +9,40 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { computeArrowEndpoint, computeWedgePolygon } from "../lib/geo";
 
-// Leaflet's default marker icon paths break under Vite's bundling unless
-// patched like this.
-delete L.Icon.Default.prototype._get;
+// FIX: the property Leaflet needs deleted is `_getIconUrl`, not `_get`.
+// Without this fix, any marker that falls back to the default Leaflet
+// icon 404s on its image under Vite's bundling.
+delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
-const lastKnownIcon = L.divIcon({
-  className: "",
-  html: `<span class="pulse-marker"><span class="pulse-marker__dot"></span></span>`,
-  iconSize: [22, 22],
-  iconAnchor: [11, 11],
-});
+const SEVERITY_COLORS = {
+  LOW: "#35D07F",
+  MODERATE: "#F5A623",
+  HIGH: "#FF7A45",
+  CRITICAL: "#FF4B3E",
+};
+
+// Professional pin-style marker for the last known location, colored by
+// incident severity. Replaces the plain pulse dot.
+function buildLastKnownIcon(severity) {
+  const color = SEVERITY_COLORS[severity] || SEVERITY_COLORS.CRITICAL;
+  return L.divIcon({
+    className: "",
+    html: `
+      <span class="last-known-pin">
+        <svg width="30" height="38" viewBox="0 0 24 30" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 18 12 18s12-9 12-18C24 5.4 18.6 0 12 0z" fill="${color}"/>
+          <circle cx="12" cy="12" r="5" fill="white"/>
+        </svg>
+      </span>`,
+    iconSize: [30, 38],
+    iconAnchor: [15, 38],
+  });
+}
 
 // Smoothly recenters the existing map when the selected incident (or its
 // latest point) changes, without ever tearing the map down.
@@ -45,7 +61,7 @@ function FlyToPoint({ point, zoom }) {
   return null;
 }
 
-export default function IncidentMap({ history, prediction, showPrediction = true }) {
+export default function IncidentMap({ history, prediction, severity, showPrediction = true }) {
   const path = useMemo(
     () => history.map((p) => [p.latitude, p.longitude]),
     [history]
@@ -74,6 +90,8 @@ export default function IncidentMap({ history, prediction, showPrediction = true
       55
     );
   }, [showPrediction, lastPoint, prediction]);
+
+  const lastKnownIcon = useMemo(() => buildLastKnownIcon(severity), [severity]);
 
   const defaultCenter = lastPoint || [19.0728, 73.2385]; // Badlapur, MH fallback
 
