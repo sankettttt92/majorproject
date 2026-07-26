@@ -338,25 +338,24 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase, toE164 } from "../lib/supabase";
+import { supabase } from "../lib/supabase";
 
 export default function LoginScreen({ navigation }) {
-  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [countryCode, setCountryCode] = useState("+1");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const handleLogin = async () => {
-    if (!phone || !password) {
-      Alert.alert("Missing info", "Please enter your phone number and password.");
+    if (!email || !password) {
+      Alert.alert("Missing info", "Please enter your email and password.");
       return;
     }
 
     setSubmitting(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        phone: toE164(countryCode, phone),
+        email: email.trim().toLowerCase(),
         password,
       });
 
@@ -365,7 +364,7 @@ export default function LoginScreen({ navigation }) {
       navigation.navigate("Home");
     } catch (err) {
       console.error("Error logging in:", err);
-      Alert.alert("Couldn't log in", err.message || "Check your phone number and password.");
+      Alert.alert("Couldn't log in", err.message || "Check your email and password.");
     } finally {
       setSubmitting(false);
     }
@@ -399,21 +398,16 @@ export default function LoginScreen({ navigation }) {
             Access your safety profile and emergency contacts anytime.
           </Text>
 
-          <Text style={styles.label}>Phone Number</Text>
-          <View style={styles.row}>
-            <TouchableOpacity style={styles.countryCode}>
-              <Text style={styles.countryCodeText}>{countryCode}</Text>
-              <Ionicons name="chevron-down" size={14} color="#374151" />
-            </TouchableOpacity>
-            <TextInput
-              style={[styles.input, styles.phoneInput]}
-              placeholder="000-000-0000"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="phone-pad"
-              value={phone}
-              onChangeText={setPhone}
-            />
-          </View>
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="you@example.com"
+            placeholderTextColor="#9CA3AF"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            value={email}
+            onChangeText={setEmail}
+          />
 
           <Text style={styles.label}>Password</Text>
           <View style={styles.inputWithIcon}>
@@ -434,7 +428,23 @@ export default function LoginScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.forgotWrap}>
+          <TouchableOpacity
+            style={styles.forgotWrap}
+            onPress={async () => {
+              if (!email) {
+                Alert.alert("Enter your email", "Type your email above first.");
+                return;
+              }
+              const { error } = await supabase.auth.resetPasswordForEmail(
+                email.trim().toLowerCase()
+              );
+              if (error) {
+                Alert.alert("Couldn't send reset email", error.message);
+              } else {
+                Alert.alert("Check your email", "We sent a password reset link.");
+              }
+            }}
+          >
             <Text style={styles.forgotText}>Forgot Password?</Text>
           </TouchableOpacity>
 
@@ -533,21 +543,6 @@ const styles = StyleSheet.create({
     color: "#111827",
     backgroundColor: "#fff",
   },
-  row: { flexDirection: "row", gap: 10 },
-  countryCode: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    backgroundColor: "#fff",
-    width: 78,
-  },
-  countryCodeText: { fontSize: 15, color: "#111827", fontWeight: "600" },
-  phoneInput: { flex: 1 },
   inputWithIcon: {
     flexDirection: "row",
     alignItems: "center",

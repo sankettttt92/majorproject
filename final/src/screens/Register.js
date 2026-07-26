@@ -415,10 +415,11 @@ import { supabase, toE164 } from "../lib/supabase";
 export default function RegisterScreen({ navigation }) {
   const [form, setForm] = useState({
     fullName: "",
-    countryCode: "+1",
-    phone: "",
+    email: "",
     password: "",
     confirmPassword: "",
+    countryCode: "+91",
+    phone: "",
     emergencyPhone: "",
     address: "",
   });
@@ -472,12 +473,18 @@ export default function RegisterScreen({ navigation }) {
     }
   };
 
+  const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
   const handleSubmit = async () => {
-    if (!form.fullName || !form.phone || !form.emergencyPhone) {
+    if (!form.fullName || !form.email || !form.phone || !form.emergencyPhone) {
       Alert.alert(
         "Missing info",
-        "Please fill in your name, phone, and emergency contact number."
+        "Please fill in your name, email, phone, and emergency contact number."
       );
+      return;
+    }
+    if (!isValidEmail(form.email)) {
+      Alert.alert("Invalid email", "Please enter a valid email address.");
       return;
     }
     if (!form.password || form.password.length < 6) {
@@ -489,25 +496,25 @@ export default function RegisterScreen({ navigation }) {
       return;
     }
 
-    const e164Phone = toE164(form.countryCode, form.phone);
-
     setSubmitting(true);
     try {
       const { data, error } = await supabase.auth.signUp({
-        phone: e164Phone,
+        email: form.email.trim().toLowerCase(),
         password: form.password,
       });
 
       if (error) throw error;
 
-      // With "Confirm phone" turned off in Supabase, signUp returns a session right away.
+      // With "Confirm email" turned off in Supabase, signUp returns a session
+      // immediately — no email link to click. Save the rest of the profile now.
       const userId = data.session?.user?.id ?? data.user?.id;
       if (userId) {
         const { error: profileError } = await supabase.from("profiles").insert({
           id: userId,
           full_name: form.fullName,
-          phone: e164Phone,
-          emergency_phone: form.emergencyPhone,
+          email: form.email.trim().toLowerCase(),
+          phone: toE164(form.countryCode, form.phone),
+          emergency_phone: toE164(form.countryCode, form.emergencyPhone),
           address: form.address,
         });
 
@@ -520,13 +527,20 @@ export default function RegisterScreen({ navigation }) {
         }
       }
 
+      if (!data.session) {
+        // Fallback in case email confirmation is still on somewhere
+        Alert.alert(
+          "Check your email",
+          "We sent a confirmation link — please verify your email, then log in."
+        );
+        navigation.navigate("Login");
+        return;
+      }
+
       navigation.navigate("Home");
     } catch (err) {
       console.error("Error signing up:", err);
-      Alert.alert(
-        "Couldn't create account",
-        err.message || "Please try again."
-      );
+      Alert.alert("Couldn't create account", err.message || "Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -567,21 +581,16 @@ export default function RegisterScreen({ navigation }) {
             onChangeText={(t) => update("fullName", t)}
           />
 
-          <FieldLabel text="Phone Number" />
-          <View style={styles.row}>
-            <TouchableOpacity style={styles.countryCode}>
-              <Text style={styles.countryCodeText}>{form.countryCode}</Text>
-              <Ionicons name="chevron-down" size={14} color="#374151" />
-            </TouchableOpacity>
-            <TextInput
-              style={[styles.input, styles.phoneInput]}
-              placeholder="000-000-0000"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="phone-pad"
-              value={form.phone}
-              onChangeText={(t) => update("phone", t)}
-            />
-          </View>
+          <FieldLabel text="Email" />
+          <TextInput
+            style={styles.input}
+            placeholder="you@example.com"
+            placeholderTextColor="#9CA3AF"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            value={form.email}
+            onChangeText={(t) => update("email", t)}
+          />
 
           <FieldLabel text="Password" />
           <View style={styles.inputWithIcon}>
@@ -611,6 +620,22 @@ export default function RegisterScreen({ navigation }) {
             value={form.confirmPassword}
             onChangeText={(t) => update("confirmPassword", t)}
           />
+
+          <FieldLabel text="Phone Number" />
+          <View style={styles.row}>
+            <TouchableOpacity style={styles.countryCode}>
+              <Text style={styles.countryCodeText}>{form.countryCode}</Text>
+              <Ionicons name="chevron-down" size={14} color="#374151" />
+            </TouchableOpacity>
+            <TextInput
+              style={[styles.input, styles.phoneInput]}
+              placeholder="000-000-0000"
+              placeholderTextColor="#9CA3AF"
+              keyboardType="phone-pad"
+              value={form.phone}
+              onChangeText={(t) => update("phone", t)}
+            />
+          </View>
 
           <FieldLabel text="Emergency Contact Phone" />
           <TextInput
