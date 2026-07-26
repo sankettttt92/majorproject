@@ -404,24 +404,25 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
+  Dimensions,
   Platform,
   Alert,
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
-import { supabase, toE164 } from "../lib/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../lib/supabase"; // adjust path to match your project structure
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 export default function RegisterScreen({ navigation }) {
   const [form, setForm] = useState({
     fullName: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
-    countryCode: "+91",
     phone: "",
     emergencyPhone: "",
     address: "",
+    password: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -432,6 +433,7 @@ export default function RegisterScreen({ navigation }) {
   const handleUseCurrentLocation = async () => {
     setLocating(true);
     try {
+      // 1. Ask for permission
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
         Alert.alert(
@@ -441,10 +443,13 @@ export default function RegisterScreen({ navigation }) {
         return;
       }
 
+      // 2. Get current GPS coordinates
       const position = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
       const { latitude, longitude } = position.coords;
+
+      // 3. Reverse-geocode coordinates into a human-readable address
       const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
 
       if (place) {
@@ -473,74 +478,54 @@ export default function RegisterScreen({ navigation }) {
     }
   };
 
-  const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
   const handleSubmit = async () => {
-    if (!form.fullName || !form.email || !form.phone || !form.emergencyPhone) {
+    if (!form.fullName || !form.phone || !form.emergencyPhone || !form.password) {
       Alert.alert(
         "Missing info",
-        "Please fill in your name, email, phone, and emergency contact number."
+        "Please fill in your name, phone, password, and emergency contact number."
       );
-      return;
-    }
-    if (!isValidEmail(form.email)) {
-      Alert.alert("Invalid email", "Please enter a valid email address.");
-      return;
-    }
-    if (!form.password || form.password.length < 6) {
-      Alert.alert("Weak password", "Password must be at least 6 characters.");
-      return;
-    }
-    if (form.password !== form.confirmPassword) {
-      Alert.alert("Passwords don't match", "Please re-enter your password.");
       return;
     }
 
     setSubmitting(true);
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email: form.email.trim().toLowerCase(),
-        password: form.password,
-      });
+      // Check if phone is already registered
+      const { data: existing, error: checkError } = await supabase
+        .from("register")
+        .select("id")
+        .eq("phone", form.phone)
+        .maybeSingle();
 
-      if (error) throw error;
+      if (checkError) throw checkError;
 
-      // With "Confirm email" turned off in Supabase, signUp returns a session
-      // immediately — no email link to click. Save the rest of the profile now.
-      const userId = data.session?.user?.id ?? data.user?.id;
-      if (userId) {
-        const { error: profileError } = await supabase.from("profiles").insert({
-          id: userId,
-          full_name: form.fullName,
-          email: form.email.trim().toLowerCase(),
-          phone: toE164(form.countryCode, form.phone),
-          emergency_phone: toE164(form.countryCode, form.emergencyPhone),
-          address: form.address,
-        });
-
-        if (profileError) {
-          console.error("Error saving profile:", profileError);
-          Alert.alert(
-            "Almost done",
-            "Your account was created, but we couldn't save your profile details. You can update them later."
-          );
-        }
-      }
-
-      if (!data.session) {
-        // Fallback in case email confirmation is still on somewhere
-        Alert.alert(
-          "Check your email",
-          "We sent a confirmation link — please verify your email, then log in."
-        );
-        navigation.navigate("Login");
+      if (existing) {
+        Alert.alert("Account exists", "This phone number is already registered. Try logging in instead.");
+        setSubmitting(false);
         return;
       }
 
-      navigation.navigate("Home");
+      const { data, error } = await supabase
+        .from("register")
+        .insert({
+          full_name: form.fullName,
+          phone: form.phone,
+          emergency_phone: form.emergencyPhone,
+          address: form.address,
+          password: form.password,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // data.id is the unique Supabase-generated UUID for this user
+      await AsyncStorage.setItem("userId", data.id);
+      console.log("Saved profile, id:", data.id);
+
+      navigation.navigate("Home", { userId: data.id });
     } catch (err) {
-      console.error("Error signing up:", err);
-      Alert.alert("Couldn't create account", err.message || "Please try again.");
+      console.error("Error saving safety profile:", err);
+      Alert.alert("Something went wrong", err.message || "Couldn't save your profile. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -548,6 +533,7 @@ export default function RegisterScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
+      {/* Navy header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -560,6 +546,7 @@ export default function RegisterScreen({ navigation }) {
         <Text style={styles.headerSubtitle}>YOUR SAFETY IS OUR PRIORITY</Text>
       </View>
 
+      {/* White scrollable card */}
       <View style={styles.cardWrapper}>
         <ScrollView
           style={styles.card}
@@ -572,6 +559,7 @@ export default function RegisterScreen({ navigation }) {
             This helps us send the right help to the right place, fast.
           </Text>
 
+          {/* Full Name */}
           <FieldLabel text="Full Name" />
           <TextInput
             style={styles.input}
@@ -581,22 +569,23 @@ export default function RegisterScreen({ navigation }) {
             onChangeText={(t) => update("fullName", t)}
           />
 
-          <FieldLabel text="Email" />
+          {/* Phone Number */}
+          <FieldLabel text="Phone Number" />
           <TextInput
             style={styles.input}
-            placeholder="you@example.com"
+            placeholder="000-000-0000"
             placeholderTextColor="#9CA3AF"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            value={form.email}
-            onChangeText={(t) => update("email", t)}
+            keyboardType="phone-pad"
+            value={form.phone}
+            onChangeText={(t) => update("phone", t)}
           />
 
+          {/* Password */}
           <FieldLabel text="Password" />
           <View style={styles.inputWithIcon}>
             <TextInput
               style={styles.inputIconField}
-              placeholder="At least 6 characters"
+              placeholder="Create a password"
               placeholderTextColor="#9CA3AF"
               secureTextEntry={!showPassword}
               value={form.password}
@@ -611,32 +600,7 @@ export default function RegisterScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
-          <FieldLabel text="Confirm Password" />
-          <TextInput
-            style={styles.input}
-            placeholder="Re-enter password"
-            placeholderTextColor="#9CA3AF"
-            secureTextEntry={!showPassword}
-            value={form.confirmPassword}
-            onChangeText={(t) => update("confirmPassword", t)}
-          />
-
-          <FieldLabel text="Phone Number" />
-          <View style={styles.row}>
-            <TouchableOpacity style={styles.countryCode}>
-              <Text style={styles.countryCodeText}>{form.countryCode}</Text>
-              <Ionicons name="chevron-down" size={14} color="#374151" />
-            </TouchableOpacity>
-            <TextInput
-              style={[styles.input, styles.phoneInput]}
-              placeholder="000-000-0000"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="phone-pad"
-              value={form.phone}
-              onChangeText={(t) => update("phone", t)}
-            />
-          </View>
-
+          {/* Emergency Contact Phone */}
           <FieldLabel text="Emergency Contact Phone" />
           <TextInput
             style={styles.input}
@@ -647,6 +611,7 @@ export default function RegisterScreen({ navigation }) {
             onChangeText={(t) => update("emergencyPhone", t)}
           />
 
+          {/* Home Address / Location */}
           <FieldLabel text="Home Address / Location" />
           <View style={styles.inputWithIcon}>
             <Ionicons
@@ -678,6 +643,7 @@ export default function RegisterScreen({ navigation }) {
             </Text>
           </TouchableOpacity>
 
+          {/* CTA */}
           <TouchableOpacity
             style={[styles.button, submitting && styles.buttonDisabled]}
             onPress={handleSubmit}
@@ -688,6 +654,13 @@ export default function RegisterScreen({ navigation }) {
             ) : (
               <Text style={styles.buttonText}>Complete Registration</Text>
             )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => navigation.navigate("Home")}
+            style={styles.skipButton}
+          >
+            <Text style={styles.skipText}>Skip for now</Text>
           </TouchableOpacity>
 
           <View style={styles.footerRow}>
@@ -709,13 +682,19 @@ function FieldLabel({ text }) {
 const NAVY = "#1034A6";
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: NAVY },
+  container: {
+    flex: 1,
+    backgroundColor: NAVY,
+  },
+
   header: {
     paddingTop: Platform.OS === "ios" ? 60 : 44,
     paddingHorizontal: 24,
     paddingBottom: 36,
   },
-  backButton: { marginBottom: 18 },
+  backButton: {
+    marginBottom: 18,
+  },
   headerTitle: {
     fontFamily: "SpaceGrotesk_700Bold",
     fontSize: 28,
@@ -728,6 +707,7 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
     letterSpacing: 2,
   },
+
   cardWrapper: {
     flex: 1,
     backgroundColor: "#F7F7FB",
@@ -735,8 +715,15 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 32,
     overflow: "hidden",
   },
-  card: { flex: 1 },
-  cardContent: { paddingHorizontal: 24, paddingTop: 28, paddingBottom: 48 },
+  card: {
+    flex: 1,
+  },
+  cardContent: {
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 48,
+  },
+
   title: {
     fontFamily: "SpaceGrotesk_700Bold",
     fontSize: 30,
@@ -744,8 +731,20 @@ const styles = StyleSheet.create({
     lineHeight: 36,
     marginBottom: 14,
   },
-  subtitle: { fontSize: 15, color: "#6B7280", lineHeight: 21, marginBottom: 26 },
-  label: { fontSize: 14, color: "#111827", marginBottom: 8, marginTop: 18 },
+  subtitle: {
+    fontSize: 15,
+    color: "#6B7280",
+    lineHeight: 21,
+    marginBottom: 26,
+  },
+
+  label: {
+    fontSize: 14,
+    color: "#111827",
+    marginBottom: 8,
+    marginTop: 18,
+  },
+
   input: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -756,21 +755,7 @@ const styles = StyleSheet.create({
     color: "#111827",
     backgroundColor: "#fff",
   },
-  row: { flexDirection: "row", gap: 10 },
-  countryCode: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    backgroundColor: "#fff",
-    width: 78,
-  },
-  countryCodeText: { fontSize: 15, color: "#111827", fontWeight: "600" },
-  phoneInput: { flex: 1 },
+
   inputWithIcon: {
     flexDirection: "row",
     alignItems: "center",
@@ -780,8 +765,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     backgroundColor: "#fff",
   },
-  inputIcon: { marginRight: 8 },
-  inputIconField: { flex: 1, paddingVertical: 16, fontSize: 15, color: "#111827" },
+  inputIcon: {
+    marginRight: 8,
+  },
+  inputIconField: {
+    flex: 1,
+    paddingVertical: 16,
+    fontSize: 15,
+    color: "#111827",
+  },
   locationLink: {
     flexDirection: "row",
     alignItems: "center",
@@ -789,7 +781,12 @@ const styles = StyleSheet.create({
     marginTop: 10,
     alignSelf: "flex-start",
   },
-  locationLinkText: { fontSize: 13, color: NAVY, fontWeight: "600" },
+  locationLinkText: {
+    fontSize: 13,
+    color: NAVY,
+    fontWeight: "600",
+  },
+
   button: {
     backgroundColor: NAVY,
     borderRadius: 999,
@@ -797,9 +794,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 32,
   },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  footerRow: { flexDirection: "row", justifyContent: "center", marginTop: 20 },
-  footerText: { fontSize: 13, color: "#6B7280" },
-  footerLink: { fontSize: 13, color: NAVY, fontWeight: "700" },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  skipButton: {
+    alignItems: "center",
+    marginTop: 16,
+  },
+  skipText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    fontWeight: "600",
+  },
+
+  footerRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 20,
+  },
+  footerText: {
+    fontSize: 13,
+    color: "#6B7280",
+  },
+  footerLink: {
+    fontSize: 13,
+    color: NAVY,
+    fontWeight: "700",
+  },
 });
