@@ -17,7 +17,7 @@
 #     class Config:
 #         from_attributes = True
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
@@ -27,7 +27,7 @@ class RegisterCreate(BaseModel):
     phone: str
     emergencyPhone: str
     address: Optional[str] = None
-    password: str
+    password: str = Field(..., min_length=6, max_length=72)
 
 class RegisterOut(BaseModel):
     id: UUID
