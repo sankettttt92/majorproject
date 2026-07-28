@@ -36,13 +36,3 @@ class RegisterCreate(BaseModel):
         if len(v.encode("utf-8")) > 72:
             raise ValueError("Password must be at most 72 bytes long")
         return v
-
-
-class RegisterOut(BaseModel):
-    id: UUID
-    fullName: str
-    phone: str
-    createdAt: datetime
-
-    class Config:
-        from_attributes = True
