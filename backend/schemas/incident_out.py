@@ -51,7 +51,7 @@ class IncidentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    user_id: uuid.UUID          # ← was str, now matches the real FK column type
+    user_id: uuid.UUID  | None        # ← was str, now matches the real FK column type
     device_id: str | None
 
     # Location
