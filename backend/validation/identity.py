@@ -1,59 +1,59 @@
-# """
-# validation/identity.py
-# Confirms the user_id sent with the SOS actually exists in our users table.
-# """
-# from dataclasses import dataclass
-
-# from sqlalchemy.ext.asyncio import AsyncSession
-# from sqlalchemy import select
-
-# from models.user import User
-
-
-# @dataclass
-# class IdentityResult:
-#     user: User | None
-#     found: bool
-#     score: int
-
-
-# async def check_identity(db: AsyncSession, user_id: str) -> IdentityResult:
-#     result = await db.execute(select(User).where(User.external_id == user_id))
-#     user = result.scalar_one_or_none()
-
-#     if user is None:
-#         return IdentityResult(user=None, found=False, score=20)
-
-#     score = 90 if user.is_verified else 60
-#     return IdentityResult(user=user, found=True, score=score)
-
 """
 validation/identity.py
-Confirms the user_id sent with the SOS actually exists in our register table.
+Confirms the user_id sent with the SOS actually exists in our users table.
 """
 from dataclasses import dataclass
-import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from models.register import Register
+from models.user import User
 
 
 @dataclass
 class IdentityResult:
-    user: Register | None
+    user: User | None
     found: bool
     score: int
 
 
-async def check_identity(db: AsyncSession, user_id: uuid.UUID) -> IdentityResult:
-    result = await db.execute(select(Register).where(Register.id == user_id))
+async def check_identity(db: AsyncSession, user_id: str) -> IdentityResult:
+    result = await db.execute(select(User).where(User.external_id == user_id))
     user = result.scalar_one_or_none()
 
     if user is None:
         return IdentityResult(user=None, found=False, score=20)
 
-    # Register has no is_verified / trust flag yet — every found user
-    # gets the same base score for now.
-    return IdentityResult(user=user, found=True, score=80)
+    score = 90 if user.is_verified else 60
+    return IdentityResult(user=user, found=True, score=score)
+
+# """
+# validation/identity.py
+# Confirms the user_id sent with the SOS actually exists in our register table.
+# """
+# from dataclasses import dataclass
+# import uuid
+
+# from sqlalchemy.ext.asyncio import AsyncSession
+# from sqlalchemy import select
+
+# from models.register import Register
+
+
+# @dataclass
+# class IdentityResult:
+#     user: Register | None
+#     found: bool
+#     score: int
+
+
+# async def check_identity(db: AsyncSession, user_id: uuid.UUID) -> IdentityResult:
+#     result = await db.execute(select(Register).where(Register.id == user_id))
+#     user = result.scalar_one_or_none()
+
+#     if user is None:
+#         return IdentityResult(user=None, found=False, score=20)
+
+#     # Register has no is_verified / trust flag yet — every found user
+#     # gets the same base score for now.
+#     return IdentityResult(user=user, found=True, score=80)
