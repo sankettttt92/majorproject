@@ -1,6 +1,7 @@
 
 
 // import { startChunkedRecording } from '@/services/silentRecorder';
+// import * as Location from 'expo-location';
 
 // /**
 //  * sendSOS
@@ -82,6 +83,78 @@
 //   return { success: sosSucceeded };
 // }
 
+// /**
+//  * ─────────────────────────────────────────────────────────────────────────
+//  * NEW — location ping loop (added, nothing above this line was changed)
+//  * ─────────────────────────────────────────────────────────────────────────
+//  */
+
+// // Keeps track of the running interval so it can be stopped later
+// // (e.g. when the user taps "I'm Safe" or a new incident starts).
+// let _pingIntervalId = null;
+
+// /**
+//  * startLocationPingLoop
+//  * Starts sending GPS pings to POST /incidents/{id}/location every
+//  * `intervalMs` (default 7000ms, within the 5-10 sec design range).
+//  *
+//  * Call this AFTER sendSOS / runConfirmedIncidentTrigger succeeds, using
+//  * the same incidentId that was just sent to /sos.
+//  *
+//  * Does not throw — network/location failures are logged via onStatus,
+//  * matching the existing pattern in sendSOS, so a lost signal never
+//  * crashes the app (it's exactly the "offline" case the backend
+//  * prediction engine is designed to detect).
+//  */
+// export function startLocationPingLoop(incidentId, apiBase, onStatus = () => {}, intervalMs = 7000) {
+//   // stop any previous loop first, so we never have two intervals running
+//   stopLocationPingLoop();
+
+//   const sendPing = async () => {
+//     try {
+//       const loc = await Location.getCurrentPositionAsync({
+//         accuracy: Location.Accuracy.High,
+//       });
+
+//       const res = await fetch(`${apiBase}/incidents/${incidentId}/location`, {
+//         method: 'POST',
+//         headers: { 'Content-Type': 'application/json' },
+//         body: JSON.stringify({
+//           latitude: loc.coords.latitude,
+//           longitude: loc.coords.longitude,
+//           speed: loc.coords.speed ?? null,
+//           heading: loc.coords.heading ?? null,
+//           accuracy: loc.coords.accuracy ?? null,
+//         }),
+//       });
+
+//       if (!res.ok) {
+//         console.warn('Location ping failed:', res.status);
+//         onStatus('Location ping failed');
+//       }
+//     } catch (err) {
+//       // Expected if the phone loses signal — don't alert, just log.
+//       console.warn('Location ping error (device may be offline):', err.message);
+//       onStatus('Location ping failed (offline)');
+//     }
+//   };
+
+//   sendPing(); // fire one immediately, don't wait for the first interval tick
+//   _pingIntervalId = setInterval(sendPing, intervalMs);
+// }
+
+// /**
+//  * stopLocationPingLoop
+//  * Stops the ping loop, if one is running. Safe to call even if no loop
+//  * is active (e.g. on app mount, as a defensive reset).
+//  */
+// export function stopLocationPingLoop() {
+//   if (_pingIntervalId) {
+//     clearInterval(_pingIntervalId);
+//     _pingIntervalId = null;
+//   }
+// }
+
 import { startChunkedRecording } from '@/services/silentRecorder';
 import * as Location from 'expo-location';
 
@@ -97,6 +170,7 @@ export async function sendSOS({
   incidentId,
   apiBase,
   areaLabel,
+  userId,
   onStatus = () => {},
 }) {
   const latitude = location?.coords?.latitude ?? null;
@@ -113,7 +187,7 @@ export async function sendSOS({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         incident_id: incidentId,
-        user_id: 'guest',
+        user_id: userId,
         device_id: 'unknown_device',
         auth_token: 'guest_token',
         latitude,
@@ -145,6 +219,7 @@ export async function runConfirmedIncidentTrigger({
   incidentId,
   apiBase,
   areaLabel,
+  userId,
   onStatus = () => {},
 }) {
   const { success: sosSucceeded } = await sendSOS({
@@ -152,6 +227,7 @@ export async function runConfirmedIncidentTrigger({
     incidentId,
     apiBase,
     areaLabel,
+    userId,
     onStatus,
   });
 

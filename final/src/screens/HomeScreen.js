@@ -1,4 +1,5 @@
 
+
 // import React, { useEffect, useState, useCallback } from 'react';
 // import {
 //   View, Text, ScrollView, TouchableOpacity,
@@ -9,6 +10,7 @@
 // import { LinearGradient } from 'expo-linear-gradient';
 // import * as ImagePicker from 'expo-image-picker';
 // import * as Crypto from 'expo-crypto';
+// import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // import { useLocation, useBattery, useNetwork, useClock, useSignalStrength, usePing } from '@/hooks/useLiveData';
 // import { useShakeDetection } from '@/hooks/useShakeDetection';
@@ -20,8 +22,10 @@
 // import SOSCountdown from '@/components/SOSCountdown';
 // import { formatTime, formatDate } from '@/utils/time';
 
-// const SECTOR = 'Sector 7';
-// const USER_NAME = 'Sanket';
+// // Fallbacks shown only until the registered profile loads (or if the user
+// // skipped registration and there's no userId in AsyncStorage yet).
+// const DEFAULT_USER_NAME = 'Guest';
+// const DEFAULT_SECTOR = 'Unregistered';
 
 // // Use your laptop's LAN IP when testing on a physical phone.
 // // NOTE: this can change whenever your laptop reconnects to Wi-Fi. If uploads
@@ -71,10 +75,56 @@
 //   const [showCountdown, setShowCountdown] = useState(false);
 //   const [recordingStatus, setRecordingStatus] = useState('');
 
+//   // Registered profile (full_name + address) pulled from the `register`
+//   // table using the userId saved to AsyncStorage at registration time.
+//   const [profile, setProfile] = useState({ fullName: '', address: '' });
+//   const [loadingProfile, setLoadingProfile] = useState(true);
+
 //   // Client-generated incident_id, shared between /media and /sos so photos
 //   // and audio taken before or after SOS is pressed still get linked to the
 //   // right incident once it's created (see backend models/media_upload.py).
 //   const [incidentId, setIncidentId] = useState(() => Crypto.randomUUID());
+
+//   // ── Load the registered profile (name + address) once on mount ──
+//   useEffect(() => {
+//     let isMounted = true;
+
+//     const loadProfile = async () => {
+//       try {
+//         const userId = await AsyncStorage.getItem('userId');
+//         if (!userId) {
+//           // No profile yet (e.g. user tapped "Skip for now" during registration).
+//           if (isMounted) setLoadingProfile(false);
+//           return;
+//         }
+
+//         const { data, error } = await supabase
+//           .from('register')
+//           .select('full_name, address')
+//           .eq('id', userId)
+//           .single();
+
+//         if (error) throw error;
+
+//         if (isMounted && data) {
+//           setProfile({
+//             fullName: data.full_name || '',
+//             address: data.address || '',
+//           });
+//         }
+//       } catch (err) {
+//         console.warn('Failed to load registered profile:', err);
+//       } finally {
+//         if (isMounted) setLoadingProfile(false);
+//       }
+//     };
+
+//     loadProfile();
+//     return () => { isMounted = false; };
+//   }, []);
+
+//   const displayName = profile.fullName || DEFAULT_USER_NAME;
+//   const displaySector = profile.address || DEFAULT_SECTOR;
 
 //   const loadWeather = useCallback(async (lat, lon) => {
 //     const w = await fetchWeather(lat ?? 28.5852, lon ?? 77.31);
@@ -252,8 +302,10 @@
 //             </View>
 //             <View>
 //               <Text style={styles.greetingText}>Good Morning,</Text>
-//               <Text style={styles.greetingName}>{USER_NAME}</Text>
-//               <Text style={styles.headerSub}>Command Center · {SECTOR}</Text>
+//               <Text style={styles.greetingName}>{displayName}</Text>
+//               <Text style={styles.headerSub} numberOfLines={1}>
+//                 Command Center · {loadingProfile ? 'Loading…' : displaySector}
+//               </Text>
 //             </View>
 //           </View>
 
@@ -441,7 +493,7 @@
 //   },
 //   greetingText: { color: COLORS.textSecondary, fontSize: 13, fontWeight: '500' },
 //   greetingName: { color: COLORS.textHeading, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', marginTop: -2 },
-//   headerSub: { color: COLORS.textPlaceholder, fontSize: 12, marginTop: 2 },
+//   headerSub: { color: COLORS.textPlaceholder, fontSize: 12, marginTop: 2, maxWidth: 220 },
 
 //   weatherPill: {
 //     flexDirection: 'row', alignItems: 'center',
@@ -744,6 +796,19 @@ export default function HomeScreen({ navigation }) {
     if (sendingSOS) return;
     setSendingSOS(true);
 
+    // Pull the registered user's UUID (set at registration time) so the
+    // backend can link this incident to a real `register` row via FK.
+    const userId = await AsyncStorage.getItem('userId');
+
+    if (!userId) {
+      Alert.alert(
+        'Registration Required',
+        'Please complete registration before sending an SOS, so responders know who to contact.'
+      );
+      setSendingSOS(false);
+      return;
+    }
+
     // Log locally first — victim sees instant feedback.
     addIncident({
       title: 'SOS ACTIVATED',
@@ -758,6 +823,7 @@ export default function HomeScreen({ navigation }) {
       incidentId,
       apiBase: API_BASE,
       areaLabel,
+      userId,
       onStatus: (msg) => {
         console.log('[incident]', msg);
         setRecordingStatus(msg);

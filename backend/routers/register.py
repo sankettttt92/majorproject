@@ -5,8 +5,10 @@ from schemas.register import RegisterCreate
 from services.register_services import create_registration
 from services.register_services import get_registration_by_phone
 from pydantic import BaseModel
+
 class LoginRequest(BaseModel):
    phone:str
+   password:str
 
 # create a api route for the register 
 router = APIRouter(prefix="/api" , tags=["register"])
@@ -33,13 +35,18 @@ async def register(data: RegisterCreate , db: AsyncSession  = Depends(get_db)):
 
 # login api 
 @router.post("/login")
-async def login(data:LoginRequest , db:AsyncSession= Depends(get_db)):
-   entry = await get_registration_by_phone(data.phone , db)
+async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+   entry = await get_registration_by_phone(data.phone, db)
    if not entry:
-      raise HTTPException(status_code=404 , detail="No account found for this phone number")
+      raise HTTPException(status_code=404, detail="No account found for this phone number")
+
+   from services.register_services import verify_password
+   if not verify_password(data.password, entry.password):
+      raise HTTPException(status_code=401, detail="Incorrect password")
+
    return{
-      "id":entry.id,
-      "fullName":entry.full_name,
+      "id": entry.id,
+      "fullName": entry.full_name,
       "phone": entry.phone,
       "emergencyPhone": entry.emergency_phone,
       "address": entry.address,
