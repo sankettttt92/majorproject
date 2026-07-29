@@ -101,8 +101,10 @@ async def join(sid, data):
 async def join(sid, data):
     user_id = data.get("user_id")
     if not user_id:
-        print(f"[socket] join event missing user_id from {sid}")
+        print(f"[socket] join missing user_id")
         return
 
     await sio.enter_room(sid, str(user_id))
-    print(f"[socket] {sid} joined room for user {user_id}")
+
+    print(f"[socket] SID: {sid}")
+    print(f"[socket] Joined room: {user_id}")

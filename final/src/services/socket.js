@@ -28,11 +28,8 @@ export async function joinUserRoom() {
     console.log("[socket] joined room for user", userId);
   };
 
-  if (socket.connected) {
-    doJoin();
-  } else {
-    socket.once("connect", doJoin);
-  }
+ if(socket.connected) doJoin();
+ socket.on("connect" , doJoin);
 }
 
 /**
