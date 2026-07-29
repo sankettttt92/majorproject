@@ -1,3 +1,5 @@
+
+
 # """
 # routers/resources.py
 # Resource Allocation Center endpoints — teams, incidents, allocation, and
@@ -15,7 +17,8 @@
 #                                           deploys them and returns ranked assignments
 
 # New in v4:
-#   DELETE /teams/{id}                    → delete a team (blocked while DEPLOYED).
+#   PATCH /teams/{id}/status              → manually set a team's status
+#   DELETE /teams/{id}                    → delete a team (only allowed once COMPLETED).
 #                                           Relies on DB-level ON DELETE CASCADE for
 #                                           FacilityTeam and IncidentAllocation rows.
 # """
@@ -32,6 +35,7 @@
 # from models.facility_team import FacilityTeam
 # from schemas.team_out import TeamOut
 # from schemas.team_create import TeamCreate
+# from schemas.team_status_update import TeamStatusUpdate
 # from schemas.incident_out import IncidentOut
 # from schemas.facility_team_create import FacilityTeamCreate
 # from schemas.facility_team_out import (
@@ -47,6 +51,7 @@
 #     fetch_route_polyline,
 #     fetch_route_polylines_multi,
 # )
+# from schemas.facility_search_out import FacilitySearchOut
 
 # from services.astar import run_astar, run_astar_multi
 
@@ -79,27 +84,41 @@
 #     return team
 
 
-# @router.delete("/teams/{team_id}", status_code=204)
-# async def delete_team(team_id: str, db: AsyncSession = Depends(get_db)):
+# @router.patch("/teams/{team_id}/status", response_model=TeamOut)
+# async def update_team_status(
+#     team_id: str,
+#     payload: TeamStatusUpdate,
+#     db: AsyncSession = Depends(get_db),
+# ):
 #     """
-#     Delete a team.
-#     DELETE /teams/{id}
-
-#     Blocked while the team is DEPLOYED — caller must unallocate first.
-#     FacilityTeam and IncidentAllocation rows for this team are removed
-#     automatically by the DB's ON DELETE CASCADE (see models/team.py FKs).
+#     Manually set a team's status from the dashboard dialog.
+#     PATCH /teams/{id}/status   body: { "status": "COMPLETED" }
 #     """
 #     team_result = await db.execute(select(Team).where(Team.id == team_id))
 #     team = team_result.scalar_one_or_none()
 #     if not team:
 #         raise HTTPException(status_code=404, detail="Team not found")
+#     team.status = payload.status
+#     await db.commit()
+#     await db.refresh(team)
+#     return team
 
-#     if team.status == TeamStatus.DEPLOYED:
+
+# @router.delete("/teams/{team_id}", status_code=204)
+# async def delete_team(team_id: str, db: AsyncSession = Depends(get_db)):
+#     """
+#     Delete a team. Only allowed once status is COMPLETED.
+#     DELETE /teams/{id}
+#     """
+#     team_result = await db.execute(select(Team).where(Team.id == team_id))
+#     team = team_result.scalar_one_or_none()
+#     if not team:
+#         raise HTTPException(status_code=404, detail="Team not found")
+#     if team.status != TeamStatus.COMPLETED:
 #         raise HTTPException(
 #             status_code=409,
-#             detail="Cannot delete a team that is currently deployed. Unallocate it first.",
+#             detail="Only teams marked COMPLETED can be deleted.",
 #         )
-
 #     await db.delete(team)
 #     await db.commit()
 #     return None
@@ -164,6 +183,21 @@
 #         )
 #     )
 #     return ft_result.scalars().all()
+
+# @router.get("/facilities/search", response_model=list[FacilitySearchOut])
+# async def search_facilities(lat: float, lng: float, radius_m: int = 5000):
+#     """
+#     Raw lat/lng facility search — proxies Overpass server-side to avoid
+#     CORS issues when calling it directly from the browser.
+#     GET /facilities/search?lat=19.076&lng=72.8777&radius_m=5000
+
+#     Used by the frontend facility-assignment drawer for team bases,
+#     geocoded places, or manually entered coordinates — unlike
+#     /facilities/nearby/{incident_id}, this doesn't require an incident
+#     or filter by team availability.
+#     """
+#     facilities = await fetch_nearby_facilities(lat, lng, radius_m)
+#     return facilities
 
 
 # # ── Incidents ─────────────────────────────────────────────────────────────────
@@ -539,7 +573,7 @@ from schemas.facility_team_out import (
     TeamAssignmentOut,
     MultiSuggestionOut,
 )
-from socket_manager import emit_incident
+from socket_manager import emit_incident, emit_status_update_to_user
 from services.places import (
     fetch_nearby_facilities,
     fetch_road_distances,
@@ -757,6 +791,17 @@ async def allocate_teams(
     incident_out = IncidentOut.model_validate(incident)
     background_tasks.add_task(emit_incident, incident_out.model_dump(mode="json"))
 
+    if incident.user_id:
+        background_tasks.add_task(
+            emit_status_update_to_user,
+            str(incident.user_id),
+            {
+                "incident_id": str(incident.id),
+                "status": incident.status.value,
+                "message": "A rescue team has been dispatched to you",
+            },
+        )
+
     return incident_out
 
 
@@ -893,6 +938,17 @@ async def allocate_teams_multi(
     incident_out = IncidentOut.model_validate(incident)
     background_tasks.add_task(emit_incident, incident_out.model_dump(mode="json"))
 
+    if incident.user_id:
+        background_tasks.add_task(
+            emit_status_update_to_user,
+            str(incident.user_id),
+            {
+                "incident_id": str(incident.id),
+                "status": incident.status.value,
+                "message": f"{len(assignments_out)} rescue team(s) have been dispatched to you",
+            },
+        )
+
     return MultiSuggestionOut(
         incident_id=incident_id,
         assignments=assignments_out,
@@ -950,6 +1006,17 @@ async def unallocate_team(
 
     incident_out = IncidentOut.model_validate(incident)
     background_tasks.add_task(emit_incident, incident_out.model_dump(mode="json"))
+
+    if incident.user_id:
+        background_tasks.add_task(
+            emit_status_update_to_user,
+            str(incident.user_id),
+            {
+                "incident_id": str(incident.id),
+                "status": incident.status.value,
+                "message": "A team was reassigned — your incident status has been updated",
+            },
+        )
 
     return incident_out
 
