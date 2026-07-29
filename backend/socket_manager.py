@@ -96,3 +96,13 @@ async def join(sid, data):
 
     sio.enter_room(sid, str(user_id))
     print(f"[socket] {sid} joined room for user {user_id}")
+    
+@sio.event
+async def join(sid, data):
+    user_id = data.get("user_id")
+    if not user_id:
+        print(f"[socket] join event missing user_id from {sid}")
+        return
+
+    await sio.enter_room(sid, str(user_id))
+    print(f"[socket] {sid} joined room for user {user_id}")

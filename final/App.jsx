@@ -47,7 +47,7 @@ import { useFonts, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk
 import { Baloo2_700Bold } from '@expo-google-fonts/baloo-2';
 
 import RootNavigator from './src/navigation/RootNavigator';
-import StatusUpdateModal from './src/components/StatusUpdateModal';
+import StatusUpdateModal from './src/components/StatusUpdateModel';
 import { joinUserRoom, listenForStatusUpdates } from './src/services/socket';
 
 export default function App() {
