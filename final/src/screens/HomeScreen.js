@@ -631,8 +631,6 @@
 //   advisoryTitle: { color: COLORS.textHeading, fontSize: 13, fontWeight: '700' },
 //   advisoryText: { color: COLORS.textSecondary, fontSize: 12, marginTop: 3, lineHeight: 17 },
 // });
-//above is correct 
-
 
 import React, { useEffect, useState, useCallback } from 'react';
 import {
