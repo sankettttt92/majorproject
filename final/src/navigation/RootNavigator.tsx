@@ -7,6 +7,7 @@ import IncidentDetailScreen from '@/screens/IncidentDetailScreen';
 import LogMedicalScreen from '@/screens/LogMedicalScreen';
 import Register from '@/screens/Register';
 import Login from '@/screens/Login';
+import roleselection from '@/screens/Roleselection';
 
 const Stack = createStackNavigator();
 
@@ -26,6 +27,10 @@ export default function RootNavigator() {
         component={WelcomeScreen}
         options={{ headerShown: false }}
       />
+      
+      <Stack.Screen name ="Roleselection" component={roleselection} options={{headerShown:false}}/>
+
+
       <Stack.Screen
       name="Register"
       component={Register}
