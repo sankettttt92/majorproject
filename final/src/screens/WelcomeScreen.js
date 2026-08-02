@@ -29,7 +29,7 @@ export default function WelcomeScreen({ navigation }) {
 
         <TouchableOpacity
           style={styles.button}
-          onPress={() => navigation.navigate("Register")}
+          onPress={() => navigation.navigate("Roleselection")}
         >
           <Text style={styles.buttonText}>Get started</Text>
         </TouchableOpacity>
