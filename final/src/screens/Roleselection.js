@@ -55,7 +55,7 @@ export default function RoleSelectScreen({ navigation }) {
     if (roleKey === 'CITIZEN') {
       navigation.navigate('CitizenRegister');
     } else {
-      navigation.navigate('AuthorityRegister');
+      navigation.navigate('OfficerReg');
     }
   };
 
@@ -119,11 +119,9 @@ export default function RoleSelectScreen({ navigation }) {
                     isDark ? styles.pillDark : styles.pillLight,
                   ]}
                 >
-                 <TouchableOpacity onPress={() => navigation.navigate("OfficerReg")}>
-                    <Text style={[styles.getStartedText, isDark && styles.textLight]}>
-                       Get Started
-                    </Text>
-                </TouchableOpacity>
+                  <Text style={[styles.getStartedText, isDark && styles.textLight]}>
+                    Get Started
+                  </Text>
                   <Ionicons
                     name="arrow-forward"
                     size={14}
