@@ -55,7 +55,7 @@ export default function RoleSelectScreen({ navigation }) {
     if (roleKey === 'CITIZEN') {
       navigation.navigate('CitizenRegister');
     } else {
-      navigation.navigate('OfficerReg');
+      navigation.navigate('Officerreg');
     }
   };
 
