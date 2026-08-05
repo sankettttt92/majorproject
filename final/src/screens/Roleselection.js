@@ -22,10 +22,10 @@ import { Ionicons } from '@expo/vector-icons';
  */
 
 const NAVY = '#1034A6';
-const NAVY_DARK = '#0B2678';
+const NAVY_DARK = '#21332C';
 const LIGHT_TINT = '#EAF3FF';
 const BORDER = '#E5E7EB';
-const TEXT_SECONDARY = '#6B7280';
+const TEXT_SECONDARY = '#21332C';
 
 const ROLES = [
   {
@@ -119,9 +119,11 @@ export default function RoleSelectScreen({ navigation }) {
                     isDark ? styles.pillDark : styles.pillLight,
                   ]}
                 >
-                  <Text style={[styles.getStartedText, isDark && styles.textLight]}>
-                    Get Started
-                  </Text>
+                 <TouchableOpacity onPress={() => navigation.navigate("OfficerReg")}>
+                    <Text style={[styles.getStartedText, isDark && styles.textLight]}>
+                       Get Started
+                    </Text>
+                </TouchableOpacity>
                   <Ionicons
                     name="arrow-forward"
                     size={14}
@@ -167,7 +169,7 @@ const styles = StyleSheet.create({
     maxWidth: 300,
   },
 
-  cardsWrap: { flex: 1, paddingHorizontal: 24, gap: 18 },
+  cardsWrap: { flex: 1, paddingHorizontal: 24, gap: 25 },
 
   card: {
     flexDirection: 'row',

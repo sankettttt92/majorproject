@@ -8,6 +8,7 @@ import LogMedicalScreen from '@/screens/LogMedicalScreen';
 import Register from '@/screens/Register';
 import Login from '@/screens/Login';
 import Roleselection from '@/screens/Roleselection';
+import Officerreg from '@/screens/Officerreg';
 
 const Stack = createStackNavigator();
 
@@ -29,6 +30,7 @@ export default function RootNavigator() {
       />
       
       <Stack.Screen name ="Roleselection" component={Roleselection} options={{headerShown:false}}/>
+         <Stack.Screen name ="Officerreg" component={Officerreg} options={{headerShown:false}}/>
 
 
       <Stack.Screen
